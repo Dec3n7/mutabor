@@ -204,4 +204,9 @@ export default {
   kind_archive: "압축 파일",
   purpose_sevenzip: "압축 파일: ZIP, RAR, 7Z 등 풀기, ZIP 또는 7Z로 압축",
   purpose_realesrgan: "AI로 이미지를 4배 확대합니다. Vulkan을 지원하는 그래픽 카드가 필요합니다",
+  subtitles: "음성으로 자막 만들기 (SRT)",
+  transcribe: "음성을 텍스트로 (TXT)",
+  opt_speech: "음성 언어",
+  speech_auto: "자동 감지",
+  purpose_whisper: "음성을 자막이나 텍스트로, 오프라인",
 };

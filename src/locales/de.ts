@@ -204,4 +204,9 @@ export default {
   kind_archive: "Archive",
   purpose_sevenzip: "Archive: ZIP, RAR, 7Z und mehr entpacken; als ZIP oder 7Z packen",
   purpose_realesrgan: "Vergrößert Bilder per KI auf das Vierfache; braucht eine Grafikkarte mit Vulkan",
+  subtitles: "Untertitel aus Sprache (SRT)",
+  transcribe: "Sprache zu Text (TXT)",
+  opt_speech: "Gesprochene Sprache",
+  speech_auto: "Erkennen",
+  purpose_whisper: "Sprache zu Untertiteln oder Text, offline",
 };

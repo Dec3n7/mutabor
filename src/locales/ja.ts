@@ -204,4 +204,9 @@ export default {
   kind_archive: "アーカイブ",
   purpose_sevenzip: "アーカイブ：ZIP、RAR、7Z などを展開、ZIP または 7Z に圧縮",
   purpose_realesrgan: "AI で画像を 4 倍に拡大します。Vulkan 対応のグラフィックカードが必要です",
+  subtitles: "音声から字幕（SRT）",
+  transcribe: "音声を文字に（TXT）",
+  opt_speech: "話されている言語",
+  speech_auto: "自動検出",
+  purpose_whisper: "音声を字幕や文字にオフラインで変換",
 };

@@ -204,4 +204,9 @@ export default {
   kind_archive: "压缩包",
   purpose_sevenzip: "压缩包：解压 ZIP、RAR、7Z 等；压缩为 ZIP 或 7Z",
   purpose_realesrgan: "借助 AI 将图片放大四倍；需要支持 Vulkan 的显卡",
+  subtitles: "从语音生成字幕（SRT）",
+  transcribe: "语音转文字（TXT）",
+  opt_speech: "语音语言",
+  speech_auto: "自动检测",
+  purpose_whisper: "离线将语音转为字幕或文字",
 };

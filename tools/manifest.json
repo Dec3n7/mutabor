@@ -182,8 +182,71 @@
         "files": {
           "realesrgan-ncnn-vulkan.exe": "realesrgan-ncnn-vulkan"
         }
+      },
+      "aarch64-apple-darwin": {
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip",
+        "sha256": "e0ad05580abfeb25f8d8fb55aaf7bedf552c375b5b4d9bd3c8d59764d2cc333a",
+        "size": 51817124,
+        "keep": true,
+        "files": {
+          "realesrgan-ncnn-vulkan": "realesrgan-ncnn-vulkan"
+        }
+      },
+      "x86_64-apple-darwin": {
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip",
+        "sha256": "e0ad05580abfeb25f8d8fb55aaf7bedf552c375b5b4d9bd3c8d59764d2cc333a",
+        "size": 51817124,
+        "keep": true,
+        "files": {
+          "realesrgan-ncnn-vulkan": "realesrgan-ncnn-vulkan"
+        }
+      },
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip",
+        "sha256": "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96",
+        "size": 46931474,
+        "keep": true,
+        "files": {
+          "realesrgan-ncnn-vulkan": "realesrgan-ncnn-vulkan"
+        }
       }
     }
+  },
+  "whisper": {
+    "purpose": "speech to subtitles (SRT) or text, offline, in many languages",
+    "license": "MIT",
+    "version": "b5454",
+    "optional": true,
+    "title": "whisper.cpp",
+    "builds": {
+      "x86_64-pc-windows-msvc": {
+        "source": "Official release on GitHub",
+        "url": "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip",
+        "sha256": "6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb",
+        "size": 8928640,
+        "keep": true,
+        "files": {
+          "Release/whisper-cli.exe": "whisper-cli"
+        }
+      },
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-ubuntu-x64.tar.gz",
+        "sha256": "a72becf15d7917f990f6313867a52638b82b7f9ef237fb0c980dac56a135781c",
+        "size": 10364195,
+        "keep": true,
+        "files": {
+          "whisper-cli": "whisper-cli"
+        }
+      }
+    },
+    "extra": [
+      {
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+        "sha256": "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+        "size": 190085487,
+        "name": "ggml-small-q5_1.bin"
+      }
+    ]
   },
   "planned": {
     "$comment": "Filled in when each engine is integrated; MuPDF has no official macOS or Linux build yet.",

@@ -230,6 +230,7 @@ function chipLabel(f: Field, v: string | number): string {
   if (f === "mb") return t("mb_n", { n: v });
   if (f === "speed") return `×${v}`;
   if (f === "model") return t(`model_${v}`);
+  if (f === "speech") return v === "auto" ? t("speech_auto") : (LANGUAGES[v] ?? String(v));
   if (v === 0) return t("original");
   if (f === "height") return `${v}p`;
   if (f === "width" || f === "side") return `${v} px`;

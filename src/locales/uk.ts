@@ -204,4 +204,9 @@ export default {
   kind_archive: "Архіви",
   purpose_sevenzip: "Архіви: розпакувати ZIP, RAR, 7Z та інші; запакувати в ZIP або 7Z",
   purpose_realesrgan: "Збільшує зображення в 4 рази за допомогою ШІ; потрібна відеокарта з Vulkan",
+  subtitles: "Субтитри з мовлення (SRT)",
+  transcribe: "Мовлення в текст (TXT)",
+  opt_speech: "Мова мовлення",
+  speech_auto: "Визначити",
+  purpose_whisper: "Мовлення в субтитри або текст, без інтернету",
 };

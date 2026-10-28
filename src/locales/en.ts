@@ -205,4 +205,9 @@ export default {
   kind_archive: "Archives",
   purpose_sevenzip: "Archives: unpack ZIP, RAR, 7Z and more; pack into ZIP or 7Z",
   purpose_realesrgan: "Makes pictures four times larger with AI; needs a graphics card with Vulkan",
+  subtitles: "Subtitles from speech (SRT)",
+  transcribe: "Speech to text (TXT)",
+  opt_speech: "Spoken language",
+  speech_auto: "Detect",
+  purpose_whisper: "Speech to subtitles or text, offline",
 };

@@ -204,4 +204,9 @@ export default {
   kind_archive: "Archivi",
   purpose_sevenzip: "Archivi: estrai ZIP, RAR, 7Z e altri; comprimi in ZIP o 7Z",
   purpose_realesrgan: "Ingrandisce le immagini quattro volte con l'IA; serve una scheda video con Vulkan",
+  subtitles: "Sottotitoli dal parlato (SRT)",
+  transcribe: "Parlato in testo (TXT)",
+  opt_speech: "Lingua parlata",
+  speech_auto: "Rileva",
+  purpose_whisper: "Dal parlato a sottotitoli o testo, offline",
 };

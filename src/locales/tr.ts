@@ -204,4 +204,9 @@ export default {
   kind_archive: "Arşivler",
   purpose_sevenzip: "Arşivler: ZIP, RAR, 7Z ve diğerlerini çıkar; ZIP veya 7Z olarak sıkıştır",
   purpose_realesrgan: "Resimleri yapay zekâyla dört kat büyütür; Vulkan destekli ekran kartı gerekir",
+  subtitles: "Konuşmadan altyazı (SRT)",
+  transcribe: "Konuşmayı metne çevir (TXT)",
+  opt_speech: "Konuşma dili",
+  speech_auto: "Algıla",
+  purpose_whisper: "Konuşmayı altyazıya veya metne çevirir, çevrimdışı",
 };

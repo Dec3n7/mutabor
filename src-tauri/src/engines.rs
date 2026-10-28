@@ -24,6 +24,18 @@ struct Tool {
     #[serde(default)]
     optional: bool,
     builds: BTreeMap<String, Build>,
+    /// Files the same on every system (a model), saved next to the program.
+    #[serde(default)]
+    extra: Vec<Extra>,
+}
+
+#[derive(Deserialize)]
+struct Extra {
+    url: String,
+    sha256: String,
+    size: u64,
+    /// File name inside the engine's folder.
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -102,9 +114,10 @@ pub fn list(app: &AppHandle) -> Vec<EngineInfo> {
                 version: t.version.clone(),
                 license: t.license.clone(),
                 purpose: t.purpose.clone(),
-                size: build.map_or(0, |b| b.size),
+                size: build.map_or(0, |b| b.size) + t.extra.iter().map(|e| e.size).sum::<u64>(),
                 available: build.is_some(),
-                installed: build.is_some_and(|b| b.files.values().all(|p| b.locate(&dir, p).is_some())),
+                installed: build.is_some_and(|b| b.files.values().all(|p| b.locate(&dir, p).is_some()))
+                    && t.extra.iter().all(|e| dir.join(&e.name).is_file()),
             }
         })
         .collect()
@@ -114,6 +127,12 @@ pub fn list(app: &AppHandle) -> Vec<EngineInfo> {
 pub fn program(app: &AppHandle, engine: &str, program: &str) -> Option<PathBuf> {
     let tool = tools().get(engine)?;
     tool.builds.get(TARGET)?.locate(&engine_dir(app, engine, tool), program)
+}
+
+/// The installed engine's folder, where its extra files are.
+pub fn dir(app: &AppHandle, engine: &str) -> Option<PathBuf> {
+    let tool = tools().get(engine)?;
+    Some(engine_dir(app, engine, tool))
 }
 
 /// Downloads, verifies and unpacks an engine. `progress` gets 0–100.
@@ -126,11 +145,26 @@ pub fn install(app: &AppHandle, name: &str, cancel: &AtomicBool, mut progress: i
 
     let archive = root.join(build.url.rsplit('/').next().unwrap_or("download"));
     let unpacked = root.join("unpacking");
+    // One progress bar over the archive and the extra files, by size.
+    let total = (build.size + tool.extra.iter().map(|e| e.size).sum::<u64>()).max(1);
+    let share = |done: u64, size: u64| move |p: u8| ((done + size * p as u64 / 100) * 100 / total).min(99) as u8;
     let result = (|| {
-        download(&build.url, &archive, &build.sha256, build.size, cancel, &mut progress)?;
+        let part = share(0, build.size);
+        download(&build.url, &archive, &build.sha256, build.size, cancel, &mut |p| progress(part(p)))?;
         let _ = std::fs::remove_dir_all(&unpacked);
         std::fs::create_dir_all(&unpacked).map_err(|e| e.to_string())?;
         extract(&archive, &unpacked)?;
+        // Extra files go into the unpacked tree, which becomes the engine folder.
+        let mut done = build.size;
+        for extra in &tool.extra {
+            let part = share(done, extra.size);
+            let target = if build.keep { unpacked.join(&extra.name) } else { dir.join(&extra.name) };
+            if !build.keep {
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            }
+            download(&extra.url, &target, &extra.sha256, extra.size, cancel, &mut |p| progress(part(p)))?;
+            done += extra.size;
+        }
         if build.keep {
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::rename(&unpacked, &dir).map_err(|e| e.to_string())?;

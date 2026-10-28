@@ -55,6 +55,34 @@ pub struct Options {
     pub rect: Option<[u32; 4]>,
     /// Upscaling model: photos or drawings.
     pub model: Option<Model>,
+    /// Spoken language for speech recognition; none means "detect".
+    pub speech: Option<SpeechLang>,
+}
+
+/// A two-letter language code ("ru"), kept `Copy` like the other options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpeechLang(pub [u8; 2]);
+
+impl SpeechLang {
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0).unwrap_or("en")
+    }
+}
+
+impl Serialize for SpeechLang {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for SpeechLang {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        match s.as_bytes() {
+            [a, b] if a.is_ascii_lowercase() && b.is_ascii_lowercase() => Ok(SpeechLang([*a, *b])),
+            _ => Err(serde::de::Error::custom("a two-letter language code")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -108,6 +136,8 @@ pub enum Tool {
     SevenZip,
     /// Real-ESRGAN (ncnn/Vulkan) picture upscaler.
     Upscaler,
+    /// whisper.cpp speech recognition.
+    Whisper,
 }
 
 impl Tool {
@@ -119,6 +149,7 @@ impl Tool {
             Tool::Pandoc => Some(("pandoc", "pandoc")),
             Tool::SevenZip => Some(("sevenzip", "7z")),
             Tool::Upscaler => Some(("realesrgan", "realesrgan-ncnn-vulkan")),
+            Tool::Whisper => Some(("whisper", "whisper-cli")),
         }
     }
 }
@@ -138,6 +169,8 @@ pub struct Plan {
     pub per_page: bool,
     /// The tool reads only JPEG/PNG/WebP: other pictures become a PNG first.
     pub png_input: bool,
+    /// The tool reads only 16 kHz mono WAV: sound is converted first.
+    pub wav_input: bool,
     /// Output extension without the dot.
     pub ext: String,
     /// Appended to the input's file stem, e.g. "_compressed".
@@ -298,7 +331,35 @@ fn trim_plan(input_ext: &str, probe: Probe, opts: &Options, q: Quality) -> Resul
 /// Actions that only make sense when there is sound to work with.
 const NEEDS_AUDIO: &[&str] = &[
     "extract_mp3", "to_mp3", "to_ogg", "to_wav", "to_flac", "to_m4a", "to_opus", "normalize", "ringtone", "voice",
+    "subtitles", "transcribe",
 ];
+
+/// Speech to subtitles (SRT) or plain text with whisper.cpp; the file is
+/// named like the input, next to it.
+fn speech_plan(action: &str, opts: &Options) -> Result<Plan, PlanError> {
+    let (ext, format) = match action {
+        "subtitles" => ("srt", "-osrt"),
+        "transcribe" => ("txt", "-otxt"),
+        _ => return Err(PlanError::NotReady),
+    };
+    let lang = opts.speech.map_or("auto".to_string(), |l| l.as_str().to_string());
+    Ok(Plan {
+        tool: Tool::Whisper,
+        ext: ext.into(),
+        wav_input: true,
+        args: vec![
+            "-m".into(), format!("{{enginedir}}/{WHISPER_MODEL}"),
+            "-f".into(), "{in}".into(),
+            "-l".into(), lang,
+            format.into(),
+            "-of".into(), "{outbase}".into(),
+        ],
+        ..Default::default()
+    })
+}
+
+/// The speech model downloaded with whisper.cpp (see tools/manifest.json).
+pub const WHISPER_MODEL: &str = "ggml-small-q5_1.bin";
 
 /// The quality an action uses when the user picked none: compressing aims
 /// small, lossy edits (rotate, flip) keep as much detail as possible.
@@ -339,6 +400,9 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
     }
     if action == "trim" {
         return trim_plan(input_ext, probe, opts, q);
+    }
+    if matches!(action, "subtitles" | "transcribe") {
+        return speech_plan(action, opts);
     }
     let duration = probe.duration;
     let height = opts.height.unwrap_or(0);
@@ -912,6 +976,19 @@ mod tests {
         // The frontend sends lowercase names and may omit any field.
         let parsed: Options = serde_json::from_str(r#"{"quality":"small","height":480}"#).unwrap();
         assert_eq!(parsed, opts(Quality::Small, Some(480)));
+    }
+
+    #[test]
+    fn speech_recipes() {
+        let o: Options = serde_json::from_str(r#"{"speech":"ru"}"#).unwrap();
+        let p = plan("subtitles", "mp4", probe(10.0), &o).unwrap();
+        assert_eq!((p.tool, p.ext.as_str(), p.wav_input), (Tool::Whisper, "srt", true));
+        assert!(p.args.windows(2).any(|w| w[0] == "-l" && w[1] == "ru"));
+        let auto = plan("transcribe", "ogg", probe(10.0), &Options::default()).unwrap();
+        assert!(auto.args.windows(2).any(|w| w[0] == "-l" && w[1] == "auto"));
+        assert!(serde_json::from_str::<Options>(r#"{"speech":"russian"}"#).is_err());
+        let silent = Probe { duration: Some(3.0), has_audio: false };
+        assert_eq!(plan("subtitles", "mp4", silent, &o), Err(PlanError::NoAudio));
     }
 
     #[test]

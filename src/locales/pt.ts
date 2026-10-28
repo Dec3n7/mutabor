@@ -204,4 +204,9 @@ export default {
   kind_archive: "Arquivos compactados",
   purpose_sevenzip: "Arquivos compactados: extrair ZIP, RAR, 7Z e outros; compactar em ZIP ou 7Z",
   purpose_realesrgan: "Amplia imagens quatro vezes com IA; requer placa de vídeo com Vulkan",
+  subtitles: "Legendas a partir da fala (SRT)",
+  transcribe: "Fala em texto (TXT)",
+  opt_speech: "Idioma falado",
+  speech_auto: "Detectar",
+  purpose_whisper: "Fala em legendas ou texto, offline",
 };

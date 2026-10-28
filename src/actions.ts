@@ -23,7 +23,7 @@ export interface Action {
   /** Always opens the submenu: running without choices makes no sense. */
   ask?: boolean;
   /** Optional engine the action needs; downloaded on first use. */
-  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan";
+  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan" | "whisper";
   /** Works on the whole selection at once and needs at least two files. */
   multi?: boolean;
   /** Short button text for quick actions; the full label becomes a tooltip. */
@@ -52,7 +52,8 @@ export type Field =
   | "dpi"
   | "mb"
   | "speed"
-  | "model";
+  | "model"
+  | "speech";
 export type Quality = "high" | "normal" | "small";
 export interface Options {
   quality?: Quality;
@@ -73,6 +74,8 @@ export interface Options {
   at?: number;
   /** Upscaling model. */
   model?: "photo" | "anime";
+  /** Spoken language, two letters; absent means "detect". */
+  speech?: string;
 }
 
 /** Fields typed as text (a time) rather than picked from chips. */
@@ -91,6 +94,7 @@ export const CHOICES: Partial<Record<Field, (string | number)[]>> = {
   mb: [8, 10, 16, 25, 50, 100, 500],
   speed: [0.25, 0.5, 1.5, 2, 4],
   model: ["photo", "anime"],
+  speech: ["auto", "ru", "en", "uk", "es", "pt", "de", "fr", "it", "pl", "tr", "zh", "ja", "ko"],
 };
 
 /** Choices for a field of this action; resizing has no "original" size. */
@@ -101,12 +105,17 @@ export function choicesFor(a: Action, f: Field): (string | number)[] {
 
 /** Option value as shown in a chip: ratios are kept as [w, h]. */
 export function chipValue(o: Options, f: Field): string | number | undefined {
+  if (f === "speech") return o.speech ?? "auto";
   const v = o[f];
   return Array.isArray(v) ? v.join(":") : v;
 }
 
 export function setChip(o: Options, f: Field, v: string | number) {
   const rec = o as Record<string, unknown>;
+  if (f === "speech" && v === "auto") {
+    delete rec.speech;
+    return;
+  }
   rec[f] = f === "ratio" ? String(v).split(":").map(Number) : v;
 }
 
@@ -147,6 +156,12 @@ export const QUICK: Partial<Record<Kind, Action[]>> = {
   ],
 };
 
+/** Speech recognition for video and audio (whisper.cpp, downloaded on first use). */
+const SPEECH: Action[] = [
+  { id: "subtitles", keywords: "субтитры srt subtitles речь speech whisper", engine: "whisper", options: ["speech"] },
+  { id: "transcribe", keywords: "текст расшифровка transcribe речь speech whisper", engine: "whisper", options: ["speech"] },
+];
+
 /** Packing works on files of any kind (7-Zip, downloaded on first use). */
 const PACK: Action[] = [
   { id: "pack_zip", keywords: "zip архив упаковать archive", engine: "sevenzip" },
@@ -172,6 +187,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "frame", keywords: "кадр скриншот png снимок screenshot", options: ["at"], ask: true },
     { id: "ringtone", keywords: "рингтон звонок iphone m4r", options: ["start"] },
     { id: "voice", keywords: "голосовое telegram телеграм ogg" },
+    ...SPEECH,
     ...PACK,
   ],
   audio: [
@@ -187,6 +203,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "speed", keywords: "скорость ускорить замедлить fast slow", options: ["speed"] },
     { id: "ringtone", keywords: "рингтон звонок iphone m4r", options: ["start"] },
     { id: "voice", keywords: "голосовое telegram телеграм" },
+    ...SPEECH,
     ...PACK,
   ],
   image: [

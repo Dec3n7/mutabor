@@ -20,7 +20,7 @@ import {
   setChip,
   suggest,
 } from "./actions";
-import { formatSize, setLanguage, t } from "./i18n";
+import { LANGUAGES, formatSize, setLanguage, t } from "./i18n";
 import { DEFAULT_SETTINGS, Settings, Update, showHotkey } from "./prefs";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -161,6 +161,7 @@ function choiceLabel(field: Field, v: string | number): string {
   if (field === "mb") return t("mb_n", { n: v });
   if (field === "speed") return `×${v}`;
   if (field === "model") return t(`model_${v}`);
+  if (field === "speech") return v === "auto" ? t("speech_auto") : (LANGUAGES[v] ?? String(v));
   return String(v);
 }
 

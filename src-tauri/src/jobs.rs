@@ -316,13 +316,28 @@ fn expand(args: &[String], inputs: &[PathBuf], out: &Path, page: Option<u32>) ->
             }
             continue;
         }
-        let mut a = a.replace("{in}", &path(&inputs[0])).replace("{out}", &path(out));
+        let mut a = a
+            .replace("{in}", &path(&inputs[0]))
+            .replace("{outbase}", &path(&out.with_extension("")))
+            .replace("{out}", &path(out));
         if let Some(n) = page {
             a = a.replace("{page3}", &format!("{n:03}")).replace("{page}", &n.to_string());
         }
         v.push(a);
     }
     v
+}
+
+/// Where a plan's input is converted to first, for tools that read only
+/// a few formats; next to the result, removed afterwards.
+fn converted_input(plan: &Plan, written: &Path) -> Option<PathBuf> {
+    if plan.wav_input {
+        Some(written.with_extension("mutabor-in.wav"))
+    } else if plan.png_input {
+        Some(written.with_extension("mutabor-in.png"))
+    } else {
+        None
+    }
 }
 
 /// Page count of a PDF, via `mutool show <pdf> trailer/Root/Pages/Count`.
@@ -688,12 +703,17 @@ impl Jobs {
             _ => {
                 // Tools that read only common picture formats get a PNG copy.
                 let converted;
-                let inputs = if plan.png_input {
-                    let png = written.with_extension("mutabor-in.png");
+                let inputs = if let Some(copy) = converted_input(plan, written) {
                     let mut cmd = ffmpeg();
-                    cmd.args(["-hide_banner", "-nostdin", "-y", "-i"]).arg(&inputs[0]).args(["-frames:v", "1"]).arg(&png);
+                    cmd.args(["-hide_banner", "-nostdin", "-y", "-i"]).arg(&inputs[0]);
+                    if plan.wav_input {
+                        cmd.args(["-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"]);
+                    } else {
+                        cmd.args(["-frames:v", "1"]);
+                    }
+                    cmd.arg(&copy);
                     self.run_step(app, id, Step { cmd, ffmpeg: false }, None, span)?;
-                    converted = vec![png];
+                    converted = vec![copy];
                     &converted[..]
                 } else {
                     inputs
@@ -704,12 +724,26 @@ impl Jobs {
                 } else {
                     vec![None]
                 };
-                // `{tooldir}`: the tool's own folder, e.g. for its model files.
+                // `{tooldir}`: the program's folder; `{enginedir}`: the engine's
+                // folder, where its extra files (models) are.
                 let tooldir = program.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned();
-                let args: Vec<String> = plan.args.iter().map(|a| a.replace("{tooldir}", &tooldir)).collect();
+                let enginedir = plan
+                    .tool
+                    .engine()
+                    .and_then(|(engine, _)| crate::engines::dir(app, engine))
+                    .map(|d| d.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let args: Vec<String> = plan
+                    .args
+                    .iter()
+                    .map(|a| a.replace("{tooldir}", &tooldir).replace("{enginedir}", &enginedir))
+                    .collect();
                 for page in pages {
                     let mut cmd = command(program);
                     cmd.args(expand(&args, inputs, written, page));
+                    // Linux builds ship their shared libraries next to the program.
+                    #[cfg(target_os = "linux")]
+                    cmd.env("LD_LIBRARY_PATH", &tooldir);
                     // Relative links (pictures in Markdown) resolve next to the input.
                     if let Some(dir) = inputs[0].parent() {
                         cmd.current_dir(dir);
@@ -735,8 +769,8 @@ impl Jobs {
                 let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: part.1 });
             }
         }
-        if plan.png_input {
-            let _ = std::fs::remove_file(written.with_extension("mutabor-in.png"));
+        if let Some(copy) = converted_input(plan, written) {
+            let _ = std::fs::remove_file(copy);
         }
         if matches!(plan.post, Some(Post::PngPagesToJpg(_))) {
             for e in std::fs::read_dir(written).map_err(|e| e.to_string())?.flatten() {

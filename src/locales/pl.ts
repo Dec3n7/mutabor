@@ -204,4 +204,9 @@ export default {
   kind_archive: "Archiwa",
   purpose_sevenzip: "Archiwa: wypakuj ZIP, RAR, 7Z i inne; spakuj do ZIP lub 7Z",
   purpose_realesrgan: "Powiększa obrazy czterokrotnie dzięki AI; wymaga karty graficznej z Vulkan",
+  subtitles: "Napisy z mowy (SRT)",
+  transcribe: "Mowa na tekst (TXT)",
+  opt_speech: "Język mowy",
+  speech_auto: "Wykryj",
+  purpose_whisper: "Mowa na napisy lub tekst, bez internetu",
 };

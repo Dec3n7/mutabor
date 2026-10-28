@@ -204,4 +204,9 @@ export default {
   kind_archive: "Archives",
   purpose_sevenzip: "Archives : extraire ZIP, RAR, 7Z et plus ; compresser en ZIP ou 7Z",
   purpose_realesrgan: "Agrandit les images quatre fois grâce à l'IA ; nécessite une carte graphique compatible Vulkan",
+  subtitles: "Sous-titres à partir de la parole (SRT)",
+  transcribe: "Parole en texte (TXT)",
+  opt_speech: "Langue parlée",
+  speech_auto: "Détecter",
+  purpose_whisper: "La parole en sous-titres ou en texte, hors ligne",
 };
