@@ -69,9 +69,12 @@ CI runs the same on Windows, macOS and Linux for every push.
   PowerShell when nothing is selected.
 - **macOS:** asks Finder for its selection with AppleScript; macOS asks once
   for permission to control Finder.
-- **Network:** only when you press "Download" for an engine, and only to the
-  address in `tools/manifest.json` (GitHub for Pandoc, mupdf.com for MuPDF).
-  No telemetry, no update checks.
+- **Network:** engines are downloaded only when you press "Download", and
+  only from the address in `tools/manifest.json` (GitHub for Pandoc,
+  mupdf.com for MuPDF). Once a day, unless turned off in Settings, the app
+  reads `api.github.com/repos/Dec3n7/mutabor/releases/latest` to see whether a
+  newer version is out (`src-tauri/src/updates.rs`); nothing else is sent. No
+  telemetry.
 - **Files:** settings in `settings.json` in the OS config folder
   (`%APPDATA%\io.github.dec3n7.mutabor` on Windows), engines in
   `%LOCALAPPDATA%\io.github.dec3n7.mutabor\engines`. Results are written next

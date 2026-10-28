@@ -209,7 +209,7 @@ fn remove(p: &Path) {
     }
 }
 
-fn show_toast(app: &AppHandle) {
+pub fn show_toast(app: &AppHandle) {
     let Some(win) = app.get_webview_window(TOAST) else { return };
     if let (Ok(Some(m)), Ok(size)) = (win.primary_monitor(), win.outer_size()) {
         // Bottom-right corner, above a typical taskbar.

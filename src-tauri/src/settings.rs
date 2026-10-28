@@ -30,6 +30,10 @@ pub struct Settings {
     pub hotkeys: BTreeMap<String, String>,
     /// The user's own actions: chains of steps.
     pub custom: Vec<CustomAction>,
+    /// Ask GitHub once a day whether a newer version is out.
+    pub check_updates: bool,
+    /// The newest version already announced, so it pops up only once.
+    pub update_seen: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -109,6 +113,8 @@ impl Default for Settings {
             parallel: Parallel::default(),
             hotkeys: BTreeMap::new(),
             custom: Vec::new(),
+            check_updates: true,
+            update_seen: String::new(),
         }
     }
 }

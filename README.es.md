@@ -79,9 +79,12 @@ certificado de firma, así que el sistema no conoce al editor.
 
 - **Tus archivos se quedan en tu equipo.** No se sube nada, no hay cuentas ni
   rastreo.
-- **Solo se conecta a internet cuando tú lo pides.** Algunas acciones de PDF y
+- **Los extras, solo cuando tú lo pides.** Algunas acciones de PDF y
   libros electrónicos necesitan un componente gratuito adicional; Mutabor
   muestra su tamaño y lo descarga solo si aceptas.
+- **Una comprobación discreta de actualizaciones.** Una vez al día Mutabor
+  pregunta a GitHub el número de la última versión para avisarte cuando salga
+  una nueva. Puedes desactivarlo en Ajustes.
 - **Todo es público.** Todo el código fuente está en este repositorio, y los
   instaladores los compila GitHub a la vista de todos, no alguien en su
   ordenador.

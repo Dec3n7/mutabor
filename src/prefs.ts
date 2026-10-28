@@ -15,6 +15,14 @@ export interface Settings {
   /** Action id (or "custom:<id>") -> shortcut. */
   hotkeys: Record<string, string>;
   custom: CustomAction[];
+  check_updates: boolean;
+  update_seen: string;
+}
+
+/** Mirror of `updates::Update`: a newer release on GitHub. */
+export interface Update {
+  version: string;
+  url: string;
 }
 
 export const isMac = navigator.userAgent.includes("Mac");
@@ -29,6 +37,8 @@ export const DEFAULT_SETTINGS: Settings = {
   parallel: { video: 2, audio: 4, image: 4, pdf: 2, markup: 2 },
   hotkeys: {},
   custom: [],
+  check_updates: true,
+  update_seen: "",
 };
 
 const MOD_NAMES: Record<string, string> = isMac

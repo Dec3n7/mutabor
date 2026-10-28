@@ -17,7 +17,7 @@ import {
   setChip,
 } from "./actions";
 import { LANGUAGES, formatSize, setLanguage, t } from "./i18n";
-import { DEFAULT_SETTINGS, Settings, isModifier, showHotkey, specOf } from "./prefs";
+import { DEFAULT_SETTINGS, Settings, Update, isModifier, showHotkey, specOf } from "./prefs";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const REPO = "https://github.com/Dec3n7/mutabor";
@@ -42,10 +42,15 @@ const importText = $<HTMLTextAreaElement>("#import-text");
 const about = $<HTMLElement>("#about");
 const saved = $<HTMLElement>("#saved");
 const enginesBox = $<HTMLElement>("#engines");
+const checkUpdates = $<HTMLInputElement>("#check-updates");
+const updateState = $<HTMLElement>("#update-state");
 
 let settings: Settings = DEFAULT_SETTINGS;
 let version = "";
 let engines: EngineInfo[] = [];
+let update: Update | null = null;
+/** Result of the last "Check now", shown until the window reloads. */
+let checked: "" | "busy" | "current" | "failed" = "";
 const busy = new Set<string>();
 /** What a key press is being recorded for: "menu" or an action id. */
 let recording: string | null = null;
@@ -94,6 +99,8 @@ function render() {
   forget.textContent = t("s_forget", { n });
   forget.hidden = n === 0;
   copyResult.checked = settings.copy_result;
+  checkUpdates.checked = settings.check_updates;
+  renderUpdate();
 
   renderParallel();
   renderActionHotkeys();
@@ -102,6 +109,18 @@ function render() {
 
   about.replaceChildren(t("s_about", { v: version }), " · ");
   about.append(button(t("s_source"), () => (inTauri ? openUrl(REPO) : window.open(REPO))));
+}
+
+function renderUpdate() {
+  updateState.replaceChildren();
+  if (update) {
+    updateState.append(
+      `${t("update_available", { v: update.version })} · `,
+      button(t("update_download"), () => (inTauri ? openUrl(update!.url) : window.open(update!.url))),
+    );
+  } else if (checked === "busy") updateState.textContent = t("s_checking");
+  else if (checked === "current") updateState.textContent = t("s_up_to_date", { v: version });
+  else if (checked === "failed") updateState.textContent = t("s_check_failed");
 }
 
 function renderParallel() {
@@ -447,6 +466,18 @@ language.onchange = () => save({ ...settings, language: language.value });
 remember.onchange = () => save({ ...settings, remember: remember.checked });
 forget.onclick = () => save({ ...settings, last: {} });
 copyResult.onchange = () => save({ ...settings, copy_result: copyResult.checked });
+checkUpdates.onchange = () => save({ ...settings, check_updates: checkUpdates.checked });
+$<HTMLButtonElement>("#check-now").onclick = async () => {
+  checked = "busy";
+  renderUpdate();
+  try {
+    update = inTauri ? await invoke<Update | null>("check_updates_now") : null;
+    checked = update ? "" : "current";
+  } catch {
+    checked = "failed";
+  }
+  renderUpdate();
+};
 
 $<HTMLButtonElement>("#custom-new").onclick = () => {
   draft = { id: newId(), name: "", kind: "video", steps: [{ action: "compress", options: {} }] };
@@ -484,6 +515,11 @@ async function init() {
     version = await getVersion();
     settings = { ...DEFAULT_SETTINGS, ...(await invoke<Settings>("get_settings")) };
     engines = await invoke<EngineInfo[]>("list_engines");
+    update = await invoke<Update | null>("get_update");
+    listen<Update | null>("update", (e) => {
+      update = e.payload;
+      renderUpdate();
+    });
     listen<EngineInfo[]>("engines", (e) => {
       engines = e.payload;
       render();

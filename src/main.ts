@@ -21,7 +21,7 @@ import {
   suggest,
 } from "./actions";
 import { formatSize, setLanguage, t } from "./i18n";
-import { DEFAULT_SETTINGS, Settings, showHotkey } from "./prefs";
+import { DEFAULT_SETTINGS, Settings, Update, showHotkey } from "./prefs";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -398,17 +398,24 @@ document.addEventListener("keydown", (e) => {
 
 /** The tray menu is drawn by Rust, which does not know the system language:
  * the menu window, loaded at startup, sends it the translated labels. */
+let update: Update | null = null;
+
 function syncTray(prefs: Settings) {
   setLanguage(prefs.language);
   invoke("set_tray_language", {
     settings: t("tray_settings"),
     quit: t("tray_quit"),
   });
+  invoke("set_tray_update", { text: update ? t("update_available", { v: update.version }) : null });
 }
 
 if (inTauri) {
   invoke<Settings>("get_settings").then(syncTray);
   listen<Settings>("settings", (e) => syncTray(e.payload));
+  listen<Update | null>("update", (e) => {
+    update = e.payload;
+    invoke<Settings>("get_settings").then(syncTray);
+  });
   listen<{ files: FileInfo[]; source: string; settings: Settings; engines: EngineInfo[] }>("menu:open", (e) =>
     open(e.payload.files, e.payload.settings, e.payload.engines, e.payload.source),
   );

@@ -78,9 +78,12 @@ certificate yet, so your system doesn't know the publisher.
 
 - **Your files stay on your computer.** Nothing is uploaded, there is no
   account and no tracking.
-- **It goes online only when you ask.** Some PDF and e-book actions need an
+- **Extra components only when you ask.** Some PDF and e-book actions need an
   extra free component; Mutabor shows its size and downloads it only after you
   agree.
+- **A quiet update check.** Once a day Mutabor asks GitHub for the number of
+  the latest version, so it can tell you when a new one is out. You can turn
+  this off in Settings.
 - **Everything is open.** The whole source code is in this repository, and the
   installers are built by GitHub in public, not on someone's computer.
 

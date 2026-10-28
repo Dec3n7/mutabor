@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { formatSize, setLanguage, t } from "./i18n";
-import type { Settings } from "./prefs";
+import type { Settings, Update } from "./prefs";
 
 type JobEvent =
   | { state: "batch"; batch: number; action: string; total: number }
@@ -247,6 +247,16 @@ function handle(e: JobEvent) {
   render(batch, card);
 }
 
+/** A newer version on GitHub; shown once per version. */
+function showUpdate(u: Update) {
+  const card = el("div", "job ok");
+  const actions = el("div", "actions");
+  actions.append(button(t("update_download"), () => openUrl(u.url)));
+  card.append(el("div", "name", t("update_title", { v: u.version })), el("div", "info", t("update_note")), actions);
+  list.prepend(card);
+  scheduleHide();
+}
+
 document.body.addEventListener("mouseenter", () => {
   hovered = true;
   clearTimeout(hideTimer);
@@ -266,7 +276,9 @@ if (inTauri) {
     setLanguage(e.payload.language);
   });
   listen<JobEvent>("job", (e) => handle(e.payload));
+  listen<Update>("update:new", (e) => showUpdate(e.payload));
 } else {
+  showUpdate({ version: "0.2.0", url: "https://github.com/Dec3n7/mutabor/releases" });
   // Plain browser (npm run dev): sample jobs for working on the layout.
   handle({ state: "batch", batch: 1, action: "compress", total: 4 });
   [11, 12, 13, 14].forEach((id, i) => handle({ state: "started", id, batch: 1, name: `clip${i}.mp4`, steady: false }));

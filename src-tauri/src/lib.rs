@@ -7,6 +7,7 @@ mod recipes;
 mod selection;
 mod settings;
 mod svg;
+mod updates;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -249,8 +250,52 @@ fn cancel_job(jobs: State<'_, Arc<jobs::Jobs>>, id: u64) {
 
 /// Tray menu entries, relabelled when the interface language changes.
 struct TrayItems {
+    menu: Menu<tauri::Wry>,
     settings: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
+    /// "Version X is available"; in the menu only while there is one.
+    update: MenuItem<tauri::Wry>,
+    update_shown: Mutex<bool>,
+}
+
+/// Shows or hides the tray's update entry; `text` comes translated from the menu window.
+#[tauri::command]
+fn set_tray_update(app: AppHandle, text: Option<String>) {
+    let Some(items) = app.try_state::<TrayItems>() else { return };
+    let mut shown = items.update_shown.lock().unwrap();
+    match text {
+        Some(text) => {
+            let _ = items.update.set_text(text);
+            if !*shown && items.menu.insert(&items.update, 0).is_ok() {
+                *shown = true;
+            }
+        }
+        None if *shown => {
+            let _ = items.menu.remove(&items.update);
+            *shown = false;
+        }
+        None => {}
+    }
+}
+
+#[tauri::command]
+fn get_update(found: State<'_, updates::Found>) -> Option<updates::Update> {
+    found.0.lock().unwrap().clone()
+}
+
+/// "Check now" in Settings; network, so off the main thread.
+#[tauri::command]
+async fn check_updates_now(app: AppHandle) -> Result<Option<updates::Update>, String> {
+    let found = tauri::async_runtime::spawn_blocking(updates::check).await.map_err(|e| e.to_string())??;
+    updates::announce(&app, found.clone());
+    Ok(found)
+}
+
+fn open_update(app: &AppHandle) {
+    use tauri_plugin_opener::OpenerExt;
+    if let Some(update) = app.state::<updates::Found>().0.lock().unwrap().clone() {
+        let _ = app.opener().open_url(update.url, None::<&str>);
+    }
 }
 
 #[tauri::command]
@@ -309,8 +354,15 @@ fn setup_desktop(app: &mut tauri::App) -> tauri::Result<()> {
 
     let open = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Mutabor", true, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", "Update available", true, None::<&str>)?;
     let tray_menu = Menu::with_items(app, &[&open, &quit])?;
-    app.manage(TrayItems { settings: open.clone(), quit: quit.clone() });
+    app.manage(TrayItems {
+        menu: tray_menu.clone(),
+        settings: open.clone(),
+        quit: quit.clone(),
+        update,
+        update_shown: Mutex::new(false),
+    });
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle icon"))
         .tooltip("Mutabor")
@@ -318,11 +370,13 @@ fn setup_desktop(app: &mut tauri::App) -> tauri::Result<()> {
         .on_menu_event(|app, event| {
             match event.id.as_ref() {
                 "settings" => show_settings(app),
+                "update" => open_update(app),
                 "quit" => app.exit(0),
                 _ => {}
             }
         })
         .build(app)?;
+    updates::watch(app.handle().clone());
     Ok(())
 }
 
@@ -339,6 +393,7 @@ pub fn run() {
         .manage(Arc::new(jobs::Jobs::default()))
         .manage(settings::Store::default())
         .manage(Hotkeys::default())
+        .manage(updates::Found::default())
         .invoke_handler(tauri::generate_handler![
             run_action,
             cancel_job,
@@ -353,7 +408,10 @@ pub fn run() {
             open_settings,
             set_tray_language,
             open_crop,
-            crop_preview
+            crop_preview,
+            set_tray_update,
+            get_update,
+            check_updates_now
         ])
         .setup(|app| {
             #[cfg(desktop)]
