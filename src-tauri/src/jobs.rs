@@ -65,13 +65,14 @@ enum Event {
     Notice { message: String },
 }
 
-/// Sidecars are copied next to the main executable by the Tauri bundler.
+/// Sidecars are copied next to the main executable by the Tauri bundler. The
+/// name keeps the bundled copy apart from a system ffmpeg in /usr/bin.
 fn ffmpeg_path() -> PathBuf {
     let dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .unwrap_or_default();
-    dir.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" })
+    dir.join(if cfg!(windows) { "mutabor-ffmpeg.exe" } else { "mutabor-ffmpeg" })
 }
 
 fn command(program: &Path) -> Command {
@@ -823,7 +824,7 @@ mod tests {
                 .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(&format!("{name}-")))
                 .unwrap_or_else(|| panic!("{name} sidecar"))
         };
-        let (ffmpeg, mutool, pandoc) = (bin("ffmpeg"), bin("mutool"), bin("pandoc"));
+        let (ffmpeg, mutool, pandoc) = (bin("mutabor-ffmpeg"), bin("mutool"), bin("pandoc"));
         let dir = std::env::temp_dir().join("mutabor-tools");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

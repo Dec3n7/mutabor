@@ -5,11 +5,11 @@
 // Optional engines are downloaded by the app at runtime; `--optional` fetches
 // them here too, for the tests.
 //
-// Usage: npm run tools [-- --force] [-- --optional]
+// Usage: npm run tools [-- --force] [-- --optional] [-- --target <triple>]
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +20,12 @@ const outDir = join(root, "src-tauri/binaries");
 const force = process.argv.includes("--force");
 const optional = process.argv.includes("--optional");
 
-const triple = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(/^host: (\S+)$/m)[1];
+// `--target <triple>` for cross builds (Intel macOS on an Apple Silicon runner).
+const targetArg = process.argv.indexOf("--target");
+const triple =
+  targetArg > 0
+    ? process.argv[targetArg + 1]
+    : execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(/^host: (\S+)$/m)[1];
 const exe = triple.includes("windows") ? ".exe" : "";
 
 function sha256(path) {
@@ -38,6 +43,7 @@ async function download(url, path) {
 
 /** Finds `rel` (e.g. "bin/ffmpeg.exe") under dir, ignoring the archive's top folder. */
 function find(dir, rel) {
+  if (existsSync(join(dir, rel)) && statSync(join(dir, rel)).isFile()) return join(dir, rel);
   for (const entry of readdirSync(dir)) {
     const p = join(dir, entry);
     if (existsSync(join(p, rel))) return join(p, rel);
@@ -77,15 +83,21 @@ for (const [name, tool] of Object.entries(manifest)) {
   const unpacked = join(cache, `${name}-${tool.version}-${triple}`);
   rmSync(unpacked, { recursive: true, force: true });
   mkdirSync(unpacked, { recursive: true });
-  // Windows' own bsdtar reads zip; a GNU tar from Git Bash on PATH would not.
-  const tar = process.platform === "win32" ? join(process.env.SystemRoot, "System32", "tar.exe") : "tar";
-  execFileSync(tar, ["-xf", archive, "-C", unpacked]);
+  // bsdtar (Windows' own, macOS) reads zip; GNU tar on Linux does not, and
+  // neither would a GNU tar from Git Bash that happens to be on PATH.
+  if (process.platform === "linux" && archive.endsWith(".zip")) {
+    execFileSync("unzip", ["-q", archive, "-d", unpacked]);
+  } else {
+    const tar = process.platform === "win32" ? join(process.env.SystemRoot, "System32", "tar.exe") : "tar";
+    execFileSync(tar, ["-xf", archive, "-C", unpacked]);
+  }
 
   mkdirSync(outDir, { recursive: true });
   for (const [rel, out] of targets) {
     const src = find(unpacked, rel);
     if (!src) throw new Error(`${name}: ${rel} not found in ${archive}`);
     copyFileSync(src, out);
+    if (!exe) chmodSync(out, 0o755);
     console.log(`  -> ${out}`);
   }
   rmSync(unpacked, { recursive: true, force: true });

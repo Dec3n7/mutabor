@@ -708,7 +708,7 @@ mod tests {
             .expect("run `npm run tools` first")
             .filter_map(Result::ok)
             .map(|e| e.path())
-            .find(|p| p.file_name().unwrap().to_string_lossy().starts_with("ffmpeg-"))
+            .find(|p| p.file_name().unwrap().to_string_lossy().starts_with("mutabor-ffmpeg-"))
             .expect("ffmpeg sidecar");
         let dir = std::env::temp_dir().join("mutabor-recipes");
         let _ = std::fs::remove_dir_all(&dir);

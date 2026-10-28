@@ -1,0 +1,118 @@
+# Builds the installers in public. Pushing a tag like v0.1.0 makes a draft
+# release with every installer, a SHA256SUMS.txt and a build provenance
+# attestation per file (`gh attestation verify <file> --repo Dec3n7/mutabor`).
+# Running it by hand only builds and keeps the files as workflow artifacts.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          # Built on the Apple Silicon runner for Intel Macs.
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
+
+      - run: npm ci
+
+      - name: Fetch ffmpeg for ${{ matrix.target }} (checked by SHA-256)
+        run: npm run tools -- --target ${{ matrix.target }}
+
+      - name: Build installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target ${{ matrix.target }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: Mutabor ${{ github.ref_name }}
+          releaseDraft: true
+          releaseBody: |
+            Offline file converter: select files, press Ctrl+Alt+C (⌘⌥C on a Mac), pick an action.
+
+            | System | File |
+            | --- | --- |
+            | Windows 10/11 | `Mutabor_*_x64-setup.exe` (per-user) or `Mutabor_*_x64_*.msi` |
+            | macOS, Apple Silicon | `Mutabor_*_aarch64.dmg` |
+            | macOS, Intel | `Mutabor_*_x64.dmg` |
+            | Linux | `.AppImage` or `.deb` |
+
+            The builds are not signed with a paid certificate yet, so the system warns on first start; the README says how to get past it. Every file was built by this workflow from the tagged source: compare it with `SHA256SUMS.txt`, or check its provenance with `gh attestation verify <file> --repo Dec3n7/mutabor`.
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p dist-installers
+          cd src-tauri/target/${{ matrix.target }}/release/bundle
+          find . -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) \
+            -exec cp {} ../../../../../dist-installers/ \;
+          ls -la ../../../../../dist-installers
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist-installers/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutabor-${{ matrix.target }}
+          path: dist-installers/*
+
+  checksums:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Add SHA256SUMS.txt to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd installers
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "${{ github.ref_name }}" SHA256SUMS.txt --repo "${{ github.repository }}" --clobber

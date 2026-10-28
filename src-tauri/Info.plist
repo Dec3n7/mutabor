@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Reading Finder's selection is an Apple Event; macOS asks the user once. -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Mutabor asks Finder which files are selected, to offer actions for them.</string>
+  <!-- A menu-bar utility: no Dock icon. -->
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>

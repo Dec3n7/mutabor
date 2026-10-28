@@ -57,7 +57,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis",
+      "msi",
+      "app",
+      "dmg",
+      "deb",
+      "appimage"
+    ],
     "category": "Utility",
     "shortDescription": "Offline file converter",
     "license": "GPL-3.0-or-later",
@@ -69,7 +76,49 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/ffmpeg"
-    ]
+      "binaries/mutabor-ffmpeg"
+    ],
+    "publisher": "Dec3n7",
+    "homepage": "https://github.com/Dec3n7/mutabor",
+    "copyright": "© 2026 Dec3n7 and contributors, GPL-3.0-or-later",
+    "longDescription": "Select files, press Ctrl+Alt+C (⌘⌥C on a Mac) and pick an action: convert, compress to a size limit, trim, rotate, merge PDFs. Works offline.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "English",
+          "Russian",
+          "Ukrainian",
+          "Spanish",
+          "PortugueseBR",
+          "German",
+          "French",
+          "Italian",
+          "Polish",
+          "Turkish",
+          "SimpChinese",
+          "Japanese",
+          "Korean"
+        ],
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": [
+          "en-US",
+          "ru-RU"
+        ]
+      }
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libxdo3"
+        ]
+      }
+    }
   }
 }
