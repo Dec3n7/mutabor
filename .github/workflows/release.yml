@@ -69,23 +69,32 @@ jobs:
           releaseName: Mutabor ${{ github.ref_name }}
           releaseDraft: true
           releaseBody: |
-            Offline file converter: select files, press Ctrl+Alt+C (⌘⌥C on a Mac), pick an action.
+            Select files, press **Ctrl + Alt + C** (on a Mac **⌘ + ⌥ + C**) and pick what to do: shrink a video for Discord, turn iPhone photos into JPG, merge PDFs and more. Free, and your files never leave your computer.
 
-            | System | File |
+            **Which file do I need?**
+
+            | Your computer | Download |
             | --- | --- |
-            | Windows 10/11 | `Mutabor_*_x64-setup.exe` (per-user) or `Mutabor_*_x64_*.msi` |
-            | macOS, Apple Silicon | `Mutabor_*_aarch64.dmg` |
-            | macOS, Intel | `Mutabor_*_x64.dmg` |
-            | Linux | `.AppImage` or `.deb` |
+            | Windows 10 or 11 | `Mutabor_…_x64-setup.exe` |
+            | Mac with Apple chip (M1 and newer) | `Mutabor_…_aarch64.dmg` |
+            | Mac with Intel chip | `Mutabor_…_x64.dmg` |
+            | Linux | `Mutabor_…_amd64.AppImage` |
 
-            The builds are not signed with a paid certificate yet, so the system warns on first start; the README says how to get past it. Every file was built by this workflow from the tagged source: compare it with `SHA256SUMS.txt`, or check its provenance with `gh attestation verify <file> --repo Dec3n7/mutabor`.
+            On first start Windows may say "Windows protected your PC": click **More info → Run anyway**. On a Mac, open **System Settings → Privacy & Security → Open Anyway**. This happens because the app isn't signed with a paid certificate yet.
+
+            [Read more in your language](https://github.com/Dec3n7/mutabor#readme) · English · 中文 · Русский · 日本語 · Español
+
+            <details><summary>For IT and developers</summary>
+
+            `.msi` is for installing for all users on a Windows PC; `.deb` for Debian and Ubuntu. Every file was built by this public workflow from the tagged source: compare it with `SHA256SUMS.txt`, or check its provenance with `gh attestation verify <file> --repo Dec3n7/mutabor`.
+            </details>
 
       - name: Collect installers
         shell: bash
         run: |
           mkdir -p dist-installers
           cd src-tauri/target/${{ matrix.target }}/release/bundle
-          find . -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) \
+          find . -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) \
             -exec cp {} ../../../../../dist-installers/ \;
           ls -la ../../../../../dist-installers
 
@@ -116,3 +125,7 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
           gh release upload "${{ github.ref_name }}" SHA256SUMS.txt --repo "${{ github.repository }}" --clobber
+          # tauri-action also uploads zipped .app bundles; users want the .dmg.
+          for asset in $(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | grep '\.app\.tar\.gz$'); do
+            gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" --yes
+          done

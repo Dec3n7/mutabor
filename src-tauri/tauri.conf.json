@@ -103,10 +103,7 @@
         "displayLanguageSelector": false
       },
       "wix": {
-        "language": [
-          "en-US",
-          "ru-RU"
-        ]
+        "language": "en-US"
       }
     },
     "macOS": {
