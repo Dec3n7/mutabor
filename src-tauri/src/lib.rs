@@ -1,3 +1,4 @@
+mod engines;
 mod files;
 mod jobs;
 mod pdf;
@@ -19,6 +20,7 @@ const SETTINGS: &str = "settings";
 struct MenuOpen {
     files: Vec<files::FileInfo>,
     settings: settings::Settings,
+    engines: Vec<engines::EngineInfo>,
 }
 
 /// Collects the selection, places the popup next to the cursor and shows it.
@@ -49,7 +51,8 @@ fn open_menu(app: &AppHandle) {
     }
 
     let settings = app.state::<settings::Store>().get(app);
-    let _ = app.emit_to(MENU, "menu:open", MenuOpen { files, settings });
+    let engines = engines::list(app);
+    let _ = app.emit_to(MENU, "menu:open", MenuOpen { files, settings, engines });
     let _ = win.show();
     let _ = win.set_focus();
 }
@@ -84,6 +87,34 @@ async fn run_action(
     tauri::async_runtime::spawn_blocking(move || jobs.start(&app, &action, paths, &opts))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn list_engines(app: AppHandle) -> Vec<engines::EngineInfo> {
+    engines::list(&app)
+}
+
+/// Downloads an engine with progress in the toast; resolves when it is ready.
+#[tauri::command]
+async fn install_engine(app: AppHandle, jobs: State<'_, Arc<jobs::Jobs>>, engine: String) -> Result<(), String> {
+    let info = engines::list(&app).into_iter().find(|e| e.name == engine).ok_or("unknown engine")?;
+    let jobs = jobs.inner().clone();
+    let title = format!("{} {}", info.title, info.version);
+    let result = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || jobs.install_engine(&app, &engine, &title)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let _ = app.emit("engines", engines::list(&app));
+    result
+}
+
+#[tauri::command]
+fn remove_engine(app: AppHandle, engine: String) -> Result<(), String> {
+    engines::remove(&app, &engine)?;
+    let _ = app.emit("engines", engines::list(&app));
+    Ok(())
 }
 
 #[tauri::command]
@@ -203,6 +234,9 @@ pub fn run() {
             cancel_job,
             get_settings,
             save_settings,
+            list_engines,
+            install_engine,
+            remove_engine,
             open_settings
         ])
         .setup(|app| {

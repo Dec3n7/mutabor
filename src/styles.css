@@ -320,6 +320,21 @@ body.toast {
   overflow: hidden;
 }
 
+/* No percentages from MuPDF and Pandoc: a sliding segment instead. */
+.track.busy .fill {
+  width: 30% !important;
+  animation: slide 1.2s ease-in-out infinite;
+}
+
+@keyframes slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
 .fill {
   width: 0;
   height: 100%;
@@ -472,4 +487,54 @@ select.field option {
 
 #saved.bad {
   color: #d14b4b;
+}
+
+/* Actions that wait for an engine download */
+
+.row.locked .label {
+  color: var(--muted);
+}
+
+.badge {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.offer {
+  padding: 10px 8px 4px;
+  line-height: 1.45;
+}
+
+.offer-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.offer p {
+  margin: 6px 0;
+}
+
+.offer .primary {
+  width: 100%;
+  margin: 12px 0 2px;
+}
+
+/* Engines list in the settings window */
+
+.engine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.engine .name {
+  font-weight: 600;
+}
+
+.engine .info {
+  margin-top: 2px;
 }

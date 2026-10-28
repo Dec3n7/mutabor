@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Action,
+  EngineInfo,
   Field,
   FileInfo,
   Options,
@@ -12,6 +13,7 @@ import {
   choicesFor,
   defaultOptions,
   formatTime,
+  missingEngine,
   notSupportedYet,
   parseTime,
   quickFor,
@@ -33,6 +35,7 @@ const gear = $<HTMLButtonElement>("#gear");
 
 let files: FileInfo[] = [];
 let settings: Settings = DEFAULT_SETTINGS;
+let engines: EngineInfo[] = [];
 let visible: Action[] = [];
 let selected = 0;
 
@@ -64,7 +67,7 @@ function renderHeader() {
 
 function renderList() {
   const query = search.value.trim();
-  const all = actionsFor(files);
+  const all = actionsFor(files, engines);
   const hint = query ? undefined : suggest(files);
 
   quick.replaceChildren();
@@ -84,7 +87,7 @@ function renderList() {
   selected = Math.min(selected, Math.max(visible.length - 1, 0));
 
   list.replaceChildren();
-  if (files.length > 0 && notSupportedYet(files)) list.append(el("div", "empty", t("not_supported_yet")));
+  if (files.length > 0 && notSupportedYet(files, engines)) list.append(el("div", "empty", t("not_supported_yet")));
   else if (files.length > 0 && all.length === 0) list.append(el("div", "empty", t("no_common")));
   else if (files.length > 0 && visible.length === 0) list.append(el("div", "empty", t("no_match")));
 
@@ -94,9 +97,15 @@ function renderList() {
     list.append(el("div", "section", t(name)));
     for (const a of items) {
       const idx = i++;
-      const row = el("div", "row" + (idx === selected ? " active" : ""));
+      const missing = missingEngine(a, engines);
+      const row = el("div", "row" + (idx === selected ? " active" : "") + (missing ? " locked" : ""));
       row.append(el("span", "label", t(a.id)));
       const side = el("span", "side");
+      if (missing) {
+        const badge = el("span", "badge", `⤓ ${formatSize(missing.size)}`);
+        badge.title = t("needs_engine", { engine: missing.title });
+        side.append(badge);
+      }
       side.append(el("span", "key", idx < 9 ? String(idx + 1) : ""));
       if (a.options?.length) {
         const more = el("button", "more", "›");
@@ -231,6 +240,8 @@ function runConfig() {
 }
 
 async function run(a: Action, options?: Options) {
+  const missing = missingEngine(a, engines);
+  if (missing) return offerEngine(a, missing, options);
   if (a.ask && !options) return openConfig(a);
   try {
     await invoke("run_action", { action: a.id, paths: files.map((f) => f.path), options: options ?? null });
@@ -242,13 +253,53 @@ async function run(a: Action, options?: Options) {
   }
 }
 
+/** The download offer shown in place of the list; Enter accepts, Esc goes back. */
+let offer: (() => void) | null = null;
+
+function offerEngine(a: Action, engine: EngineInfo, options?: Options) {
+  search.hidden = true;
+  quick.hidden = true;
+  status.textContent = t("hint_offer");
+  list.replaceChildren();
+  const box = el("div", "offer");
+  box.append(
+    el("div", "offer-title", t("engine_title", { engine: engine.title })),
+    el("p", "", t("engine_text", { action: t(a.id), engine: `${engine.title} ${engine.version}`, size: formatSize(engine.size) })),
+    el("p", "note", t("engine_note", { license: engine.license })),
+  );
+  const go = el("button", "primary", `${t("engine_download")}  ↵`);
+  const back = el("button", "back", `‹ ${t("cancel")}`);
+  const paths = files.map((f) => f.path);
+  offer = async () => {
+    offer = null;
+    await hide();
+    try {
+      await invoke("install_engine", { engine: engine.name });
+      engine.installed = true;
+      // Then do what the user asked for in the first place.
+      await invoke("run_action", { action: a.id, paths, options: options ?? null });
+    } catch {
+      // The toast shows what went wrong.
+    }
+  };
+  go.onclick = () => offer?.();
+  back.onclick = () => {
+    offer = null;
+    closeConfig();
+  };
+  box.append(go, back);
+  list.append(box);
+}
+
 async function hide() {
   if (inTauri) await getCurrentWindow().hide();
 }
 
-function open(next: FileInfo[], prefs: Settings) {
+function open(next: FileInfo[], prefs: Settings, engineList: EngineInfo[]) {
   files = next;
   settings = prefs;
+  engines = engineList;
+  offer = null;
   setLanguage(prefs.language);
   search.placeholder = t("search");
   gear.title = t("settings");
@@ -285,6 +336,15 @@ function configKeys(e: KeyboardEvent) {
 }
 
 document.addEventListener("keydown", (e) => {
+  if (offer) {
+    if (e.key === "Enter") offer();
+    else if (e.key === "Escape") {
+      offer = null;
+      closeConfig();
+    } else return;
+    e.preventDefault();
+    return;
+  }
   if (config) return configKeys(e);
   const current = visible[selected];
   const caretAtEnd = search.selectionStart === search.value.length;
@@ -310,7 +370,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 if (inTauri) {
-  listen<{ files: FileInfo[]; settings: Settings }>("menu:open", (e) => open(e.payload.files, e.payload.settings));
+  listen<{ files: FileInfo[]; settings: Settings; engines: EngineInfo[] }>("menu:open", (e) =>
+    open(e.payload.files, e.payload.settings, e.payload.engines),
+  );
 } else {
   // Plain browser (npm run dev): sample data for working on the layout.
   const demo: Record<string, FileInfo[]> = {
@@ -320,10 +382,16 @@ if (inTauri) {
       { path: "/tmp/a.png", name: "a.png", ext: "png", kind: "image", size: 120_000 },
       { path: "/tmp/b.mp3", name: "b.mp3", ext: "mp3", kind: "audio", size: 4_000_000 },
     ],
+    pdf: [{ path: "/tmp/report.pdf", name: "report.pdf", ext: "pdf", kind: "pdf", size: 5_300_000 }],
+    book: [{ path: "/tmp/book.fb2", name: "book.fb2", ext: "fb2", kind: "markup", size: 900_000 }],
     none: [],
   };
+  const demoEngines: EngineInfo[] = [
+    { name: "mupdf", title: "MuPDF", version: "1.28.5", license: "AGPL-3.0", purpose: "", size: 94_292_330, available: true, installed: false },
+    { name: "pandoc", title: "Pandoc", version: "3.13", license: "GPL-2.0-or-later", purpose: "", size: 42_983_200, available: true, installed: true },
+  ];
   const params = new URLSearchParams(location.search);
-  open(demo[params.get("demo") ?? "video"] ?? [], DEFAULT_SETTINGS);
+  open(demo[params.get("demo") ?? "video"] ?? [], DEFAULT_SETTINGS, demoEngines);
   const opts = visible.find((a) => a.id === params.get("options"));
   if (opts) openConfig(opts);
 }

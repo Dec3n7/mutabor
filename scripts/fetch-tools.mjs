@@ -2,7 +2,10 @@
 // Rust target, verifies their SHA-256 and places them where Tauri expects
 // sidecars: src-tauri/binaries/<name>-<target-triple>[.exe].
 //
-// Usage: npm run tools [-- --force]
+// Optional engines are downloaded by the app at runtime; `--optional` fetches
+// them here too, for the tests.
+//
+// Usage: npm run tools [-- --force] [-- --optional]
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -15,6 +18,7 @@ const manifest = JSON.parse(readFileSync(join(root, "tools/manifest.json"), "utf
 const cache = join(root, ".cache/tools");
 const outDir = join(root, "src-tauri/binaries");
 const force = process.argv.includes("--force");
+const optional = process.argv.includes("--optional");
 
 const triple = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(/^host: (\S+)$/m)[1];
 const exe = triple.includes("windows") ? ".exe" : "";
@@ -45,7 +49,7 @@ function find(dir, rel) {
 }
 
 for (const [name, tool] of Object.entries(manifest)) {
-  if (name.startsWith("$") || name === "planned") continue;
+  if (name.startsWith("$") || name === "planned" || (tool.optional && !optional)) continue;
   const build = tool.builds[triple];
   if (!build) {
     console.warn(`${name}: no build listed for ${triple}, skipped`);

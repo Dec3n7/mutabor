@@ -2,8 +2,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Quality } from "./actions";
-import { setLanguage, t } from "./i18n";
+import { EngineInfo, Quality } from "./actions";
+import { formatSize, setLanguage, t } from "./i18n";
 import { DEFAULT_SETTINGS, Settings } from "./prefs";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -19,9 +19,12 @@ const remember = $<HTMLInputElement>("#remember");
 const forget = $<HTMLButtonElement>("#forget");
 const about = $<HTMLElement>("#about");
 const saved = $<HTMLElement>("#saved");
+const enginesBox = $<HTMLElement>("#engines");
 
 let settings: Settings = { ...DEFAULT_SETTINGS, hotkey: isMac ? "Super+Alt+KeyC" : DEFAULT_SETTINGS.hotkey };
 let version = "";
+let engines: EngineInfo[] = [];
+const busy = new Set<string>();
 let recording = false;
 
 const MOD_NAMES: Record<string, string> = isMac
@@ -66,12 +69,59 @@ function render() {
   forget.textContent = t("s_forget", { n });
   forget.hidden = n === 0;
 
+  renderEngines();
+
   about.replaceChildren(t("s_about", { v: version }), " · ");
   const link = document.createElement("button");
   link.className = "link";
   link.textContent = t("s_source");
   link.onclick = () => (inTauri ? openUrl(REPO) : window.open(REPO));
   about.append(link);
+}
+
+function renderEngines() {
+  enginesBox.replaceChildren();
+  for (const e of engines) {
+    const row = document.createElement("div");
+    row.className = "engine";
+    const text = document.createElement("div");
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = `${e.title} ${e.version}`;
+    const info = document.createElement("div");
+    info.className = "info";
+    const state = !e.available
+      ? t("s_engine_unavailable")
+      : busy.has(e.name)
+        ? t("s_engine_busy")
+        : e.installed
+          ? t("s_engine_installed")
+          : formatSize(e.size);
+    const purpose = t(`purpose_${e.name}`);
+    info.textContent = `${purpose.startsWith("purpose_") ? e.purpose : purpose} · ${e.license} · ${state}`;
+    text.append(name, info);
+    row.append(text);
+    if (e.available && !busy.has(e.name)) {
+      const b = document.createElement("button");
+      b.className = "link";
+      b.textContent = e.installed ? t("s_engine_remove") : t("s_engine_install");
+      b.onclick = async () => {
+        if (!inTauri) return;
+        busy.add(e.name);
+        render();
+        try {
+          await invoke(e.installed ? "remove_engine" : "install_engine", { engine: e.name });
+        } catch (err) {
+          flash(String(err), true);
+        }
+        busy.delete(e.name);
+        engines = await invoke<EngineInfo[]>("list_engines");
+        render();
+      };
+      row.append(b);
+    }
+    enginesBox.append(row);
+  }
 }
 
 function flash(text: string, bad = false) {
@@ -126,6 +176,11 @@ async function init() {
   if (inTauri) {
     version = await getVersion();
     settings = await invoke<Settings>("get_settings");
+    engines = await invoke<EngineInfo[]>("list_engines");
+    listen<EngineInfo[]>("engines", (e) => {
+      engines = e.payload;
+      render();
+    });
     // The menu remembers choices too; keep this window in sync.
     listen<Settings>("settings", (e) => {
       settings = e.payload;

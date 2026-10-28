@@ -6,9 +6,10 @@ import { formatSize, setLanguage, t } from "./i18n";
 import type { Settings } from "./prefs";
 
 type JobEvent =
-  | { state: "started"; id: number; name: string }
+  | { state: "started"; id: number; name: string; steady: boolean }
   | { state: "progress"; id: number; percent: number }
   | { state: "done"; id: number; output: string; before: number; after: number }
+  | { state: "installed"; id: number }
   | { state: "failed"; id: number; message: string }
   | { state: "cancelled"; id: number };
 
@@ -67,7 +68,7 @@ function handle(e: JobEvent) {
       actions: el("div", "actions"),
       finished: false,
     };
-    const track = el("div", "track");
+    const track = el("div", "track" + (e.steady ? " busy" : ""));
     track.append(row.bar);
     row.actions.append(button(t("cancel"), () => invoke("cancel_job", { id: e.id })));
     row.el.append(el("div", "name", e.name), track, row.info, row.actions);
@@ -88,11 +89,16 @@ function handle(e: JobEvent) {
 
   row.finished = true;
   row.actions.replaceChildren();
+  row.bar.parentElement!.classList.remove("busy");
   if (e.state === "done") {
     row.bar.style.width = "100%";
     row.el.classList.add("ok");
     row.info.textContent = ratio(e.before, e.after);
     row.actions.append(button(t("show_in_folder"), () => revealItemInDir(e.output)));
+  } else if (e.state === "installed") {
+    row.bar.style.width = "100%";
+    row.el.classList.add("ok");
+    row.info.textContent = t("engine_installed");
   } else if (e.state === "failed") {
     row.el.classList.add("bad");
     row.info.textContent = t("failed");
@@ -119,8 +125,9 @@ if (inTauri) {
   listen<JobEvent>("job", (e) => handle(e.payload));
 } else {
   // Plain browser (npm run dev): sample jobs for working on the layout.
-  handle({ state: "started", id: 1, name: "video.gif" });
+  handle({ state: "started", id: 1, name: "video.gif", steady: false });
   handle({ state: "progress", id: 1, percent: 64 });
-  handle({ state: "started", id: 2, name: "song.mp3" });
+  handle({ state: "started", id: 2, name: "song.mp3", steady: false });
+  handle({ state: "started", id: 3, name: "book.epub", steady: true });
   handle({ state: "done", id: 2, output: "/tmp/song.mp3", before: 38_000_000, after: 6_400_000 });
 }

@@ -8,8 +8,8 @@
 Ctrl+Alt+C (⌘⌥C on Mac), pick an action from the menu next to the cursor.
 English section below.*
 
-> **Статус: ранняя разработка.** Готовы трей, хоткей и меню. Сами конвертации
-> пока не подключены.
+> **Статус: ранняя разработка.** Работают видео, аудио, фото, PDF и книги.
+> Сборки пока только для Windows; готовых установщиков ещё нет.
 
 ## Принципы
 
@@ -20,21 +20,39 @@ English section below.*
   [Проверка сборки](#проверка-сборки).
 - **Исходник не трогается**, если вы сами не выбрали «заменить».
 
-## Что умеет (план v1)
+## Что умеет
 
-| Тип | Форматы | Действия |
-| --- | --- | --- |
-| Видео | mp4, mov, avi, mkv, webm, flv, wmv, 3gp | в другой формат, GIF, звук в MP3, сжатие, обрезка, размер, пресеты для Telegram и Discord |
-| Аудио | mp3, wav, ogg, flac, m4a, aac, opus, wma | в другой формат, выравнивание громкости |
-| Фото | jpg, png, webp, avif, gif, bmp, tiff, ico, heic, svg | в другой формат, поворот, отражение, размер, обрезка, сжатие, удаление GPS и EXIF |
-| PDF | pdf | страницы в PNG и JPG, извлечение текста, сжатие |
+| Тип | Форматы | Действия | Движок |
+| --- | --- | --- | --- |
+| Видео | mp4, mov, avi, mkv, webm, flv, wmv, 3gp | в MP4, WebM, MOV, MKV, GIF; звук в MP3; сжатие; обрезка по времени; размер; пресеты для Telegram и Discord (≤10 МБ) | FFmpeg, встроен |
+| Аудио | mp3, wav, ogg, flac, m4a, aac, opus, wma | в другой формат, обрезка, выравнивание громкости | FFmpeg, встроен |
+| Фото | jpg, png, webp, avif, gif, bmp, tiff, ico, heic | в другой формат, в PDF, поворот, отражение, размер, кадрирование по пропорциям, сжатие, удаление GPS и EXIF | FFmpeg, встроен |
+| PDF | pdf | объединение, разделение по страницам, страницы в PNG и JPG, текст, сжатие | MuPDF, докачивается |
+| Книги и разметка | md, html, epub, fb2, txt | в Markdown, HTML, EPUB, FB2, TXT | Pandoc, докачивается |
 
-Документы Word, Excel и PowerPoint не поддерживаются и не планируются.
+У большинства действий есть параметры (Shift+Enter): качество, разрешение,
+отрезок времени, пропорции и т. д. Последний выбор запоминается.
+
+Документы Word, Excel и PowerPoint не поддерживаются и не планируются. SVG
+появится позже.
+
+### Докачиваемые движки
+
+MuPDF и Pandoc не входят в установщик, чтобы он оставался маленьким. Действия,
+которым они нужны, в меню серые и показывают размер загрузки. При первом
+запуске такого действия Mutabor предложит скачать движок с официального сайта,
+сверит SHA-256 со значением из [`tools/manifest.json`](tools/manifest.json) и
+только потом выполнит действие. Движки можно удалить в настройках.
+
+| Движок | Версия | Лицензия | Загрузка | Системы |
+| --- | --- | --- | --- | --- |
+| [MuPDF](https://mupdf.com) | 1.28.5 | AGPL-3.0 | 90 МБ | Windows (macOS и Linux позже) |
+| [Pandoc](https://pandoc.org) | 3.13 | GPL-2.0+ | 27–43 МБ | Windows, macOS, Linux |
 
 ## Системные требования
 
-Устанавливать ничего не нужно: ffmpeg и остальные утилиты лежат внутри
-установщика.
+Устанавливать ничего не нужно: FFmpeg лежит внутри установщика, MuPDF и
+Pandoc программа скачает сама, когда понадобятся.
 
 | ОС | Требования |
 | --- | --- |
@@ -59,8 +77,12 @@ English section below.*
   Проводника через стандартный COM-объект `Shell.Application`.
 - **macOS:** при первом нажатии хоткея попросит разрешение «управлять Finder» —
   только чтобы узнать выделенные файлы.
-- **Сеть:** не используется. (Позже: проверка обновлений на GitHub и докачка
-  pandoc — оба отключаемые.)
+- **Сеть:** только когда вы сами нажали «Скачать» для движка — запрос идёт на
+  адрес из `tools/manifest.json` (GitHub для Pandoc, mupdf.com для MuPDF).
+  Больше программа в интернет не ходит.
+- **Файлы:** настройки — `settings.json` в папке настроек (`%APPDATA%\io.github.dec3n7.mutabor`
+  на Windows), движки — в `%LOCALAPPDATA%\io.github.dec3n7.mutabor\engines`.
+  Результаты сохраняются рядом с исходником с новым именем.
 
 ## Сборка из исходников
 
@@ -74,7 +96,17 @@ npm run tauri build   # установщик для вашей ОС
 ```
 
 Чтобы работать над меню в обычном браузере, без Rust: `npm run dev` и откройте
-`http://localhost:1420/?demo=video` (также `image`, `mixed`, `none`).
+`http://localhost:1420/?demo=video` (также `image`, `mixed`, `pdf`, `book`, `none`;
+`&options=<действие>` открывает его параметры).
+
+Тесты:
+
+```bash
+npm run tools -- --optional   # FFmpeg, MuPDF и Pandoc для тестов
+cd src-tauri
+cargo test                    # быстрые
+cargo test -- --ignored       # прогон всех рецептов на настоящих программах
+```
 
 ## Проверка сборки
 
@@ -97,8 +129,11 @@ press **Ctrl+Alt+C** (**⌘⌥C** on macOS) and pick an action — convert, comp
 rotate, resize — from a popup menu next to the cursor. Nothing leaves your
 computer: no accounts, no cloud, no telemetry.
 
-**Status:** early development; tray, hotkey and menu work, conversions are not
-wired yet.
+**Status:** early development. Video, audio, images, PDF and e-books work;
+Windows only for now, no installers yet. FFmpeg is bundled; MuPDF (PDF) and
+Pandoc (Markdown, HTML, EPUB, FB2) are downloaded from their official sites the
+first time you need them and checked against the SHA-256 in
+`tools/manifest.json`. That download is the only time Mutabor goes online.
 
 Build: `npm install`, then `npm run tauri dev`. Requirements:
 [Rust](https://rustup.rs), Node.js 20+, and the

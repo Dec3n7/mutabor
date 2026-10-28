@@ -1,5 +1,5 @@
 {
-  "$comment": "External tools bundled with Mutabor. Binaries are never committed: `npm run tools` downloads each archive from its official source and refuses to continue if the SHA-256 does not match. Hashes come from the release pages.",
+  "$comment": "External tools. Binaries are never committed. Bundled tools are fetched by `npm run tools` at build time; optional engines (\"optional\": true) are downloaded by the app itself when the user first needs them. Either way the archive comes from the official source and is rejected if its SHA-256 does not match. Hashes come from the release pages.",
   "ffmpeg": {
     "purpose": "video, audio, GIF",
     "license": "GPL-3.0",
@@ -13,13 +13,70 @@
           "bin/ffmpeg.exe": "ffmpeg"
         }
       }
+    },
+    "title": "FFmpeg"
+  },
+  "mupdf": {
+    "purpose": "PDF: pages to images, text, compress, merge, split",
+    "license": "AGPL-3.0",
+    "version": "1.28.5",
+    "optional": true,
+    "title": "MuPDF",
+    "builds": {
+      "x86_64-pc-windows-msvc": {
+        "source": "Official Windows build, https://mupdf.com/releases?product=MuPDF",
+        "url": "https://casper.mupdf.com/downloads/archive/mupdf-1.28.5-windows.zip",
+        "sha256": "13476a53e84f5527983158acb6442c7853b3cdc022f3b24880780dcfba1fcc99",
+        "size": 94292330,
+        "files": {
+          "mutool.exe": "mutool"
+        }
+      }
+    }
+  },
+  "pandoc": {
+    "purpose": "markup and e-books: Markdown, HTML, EPUB, FB2, TXT",
+    "license": "GPL-2.0-or-later",
+    "version": "3.13",
+    "optional": true,
+    "title": "Pandoc",
+    "builds": {
+      "x86_64-pc-windows-msvc": {
+        "url": "https://github.com/jgm/pandoc/releases/download/3.13/pandoc-3.13-windows-x86_64.zip",
+        "sha256": "23e1f2e978a3df80db8bf65c9c59534f41a23140480cfb4f783a882ab7dc6a4e",
+        "size": 42983200,
+        "files": {
+          "pandoc.exe": "pandoc"
+        }
+      },
+      "aarch64-apple-darwin": {
+        "url": "https://github.com/jgm/pandoc/releases/download/3.13/pandoc-3.13-arm64-macOS.zip",
+        "sha256": "f436d18bebbfb3ddd326597686dacab9fac5dc23bd060495020f35a28a43a7c3",
+        "size": 43148194,
+        "files": {
+          "bin/pandoc": "pandoc"
+        }
+      },
+      "x86_64-apple-darwin": {
+        "url": "https://github.com/jgm/pandoc/releases/download/3.13/pandoc-3.13-x86_64-macOS.zip",
+        "sha256": "1823278715aa405aaf21b59cde5dc789346aa8d4fc307467f9a9ee84162bedc5",
+        "size": 26891866,
+        "files": {
+          "bin/pandoc": "pandoc"
+        }
+      },
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://github.com/jgm/pandoc/releases/download/3.13/pandoc-3.13-linux-amd64.tar.gz",
+        "sha256": "38aa33b325a2bc96a4c39409631212db55702f564250bcdbead180b3bf646389",
+        "size": 36101020,
+        "files": {
+          "bin/pandoc": "pandoc"
+        }
+      }
     }
   },
   "planned": {
-    "$comment": "Filled in when each engine is integrated; macOS and Linux ffmpeg builds come with the CI setup.",
-    "libvips": "images, HEIC, SVG (LGPL-2.1) https://github.com/libvips/libvips/releases",
-    "pdfium": "PDF rendering (BSD-3-Clause) https://github.com/bblanchon/pdfium-binaries/releases",
-    "qpdf": "PDF merge, split, compress (Apache-2.0) https://github.com/qpdf/qpdf/releases",
-    "pandoc": "markup and e-books, downloaded on first use (GPL-2.0-or-later) https://github.com/jgm/pandoc/releases"
+    "$comment": "Filled in when each engine is integrated; macOS and Linux builds of ffmpeg and MuPDF come with the CI setup.",
+    "libvips": "images, HEIC, SVG (LGPL-2.1) https://github.com/libvips/libvips/releases"
   }
 }

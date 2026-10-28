@@ -13,7 +13,7 @@ pub enum Quality {
 
 impl Quality {
     /// Picks the value for this quality from a (high, normal, small) triple.
-    fn pick<T>(self, high: T, normal: T, small: T) -> T {
+    pub fn pick<T>(self, high: T, normal: T, small: T) -> T {
         match self {
             Quality::High => high,
             Quality::Normal => normal,
@@ -43,6 +43,8 @@ pub struct Options {
     pub ratio: Option<[u32; 2]>,
     /// PDF page size for images.
     pub page: Option<Page>,
+    /// Resolution for PDF pages rendered as pictures.
+    pub dpi: Option<u32>,
 }
 
 impl Options {
@@ -64,16 +66,50 @@ pub enum Page {
     Original,
 }
 
-/// A step after ffmpeg, done by Mutabor itself.
+/// A step after the main program, done by Mutabor itself or by ffmpeg.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Post {
     /// ffmpeg writes a JPEG, which is then wrapped into a one-page PDF.
     JpegToPdf(Page),
+    /// MuPDF renders PNG pages, ffmpeg turns them into JPEGs.
+    PngPagesToJpg(Quality),
+}
+
+/// The program that does the work. ffmpeg ships with the app; the others
+/// are optional engines downloaded on first use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Tool {
+    #[default]
+    Ffmpeg,
+    /// MuPDF's `mutool`.
+    Mutool,
+    Pandoc,
+}
+
+impl Tool {
+    /// (engine, program) for the optional ones.
+    pub fn engine(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Tool::Ffmpeg => None,
+            Tool::Mutool => Some(("mupdf", "mutool")),
+            Tool::Pandoc => Some(("pandoc", "pandoc")),
+        }
+    }
 }
 
 /// What to run for one input file.
+///
+/// For ffmpeg, `args` go between `-i <input>` and the output. For the other
+/// tools `args` is the whole command line, with `{in}`, `{out}` and `{inputs}`
+/// standing for the input, the output and all inputs (merge), and `{page}` /
+/// `{page3}` for the page number when `per_page` is set.
 #[derive(Debug, PartialEq, Default)]
 pub struct Plan {
+    pub tool: Tool,
+    /// The output is a folder (one file per page).
+    pub dir: bool,
+    /// Runs `args` once per PDF page.
+    pub per_page: bool,
     /// Output extension without the dot.
     pub ext: String,
     /// Appended to the input's file stem, e.g. "_compressed".
@@ -188,7 +224,7 @@ fn trim_plan(input_ext: &str, probe: Probe, opts: &Options, q: Quality) -> Resul
         input_args: vec!["-ss".into(), secs(start)],
         args: a,
         expected: length,
-        post: None,
+        ..Default::default()
     })
 }
 
@@ -221,8 +257,11 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
         return Err(PlanError::NoAudio);
     }
     let q = opts.quality.unwrap_or_else(|| default_quality(action));
-    if crate::files::kind_of(input_ext) == crate::files::Kind::Image {
-        return image_plan(action, input_ext, q, opts);
+    match crate::files::kind_of(input_ext) {
+        crate::files::Kind::Image => return image_plan(action, input_ext, q, opts),
+        crate::files::Kind::Pdf => return pdf_plan(action, q, opts),
+        crate::files::Kind::Markup => return markup_plan(action, input_ext),
+        _ => {}
     }
     if action == "trim" {
         return trim_plan(input_ext, probe, opts, q);
@@ -402,6 +441,84 @@ fn image_plan(action: &str, input_ext: &str, quality: Quality, opts: &Options) -
     };
     let filters: Vec<&str> = filter.as_deref().into_iter().collect();
     plan_of(ext, suffix, encode_image(ext, input_ext, &filters, quality)?)
+}
+
+fn tool_plan(tool: Tool, ext: &str, suffix: &str, list: &[&str]) -> Result<Plan, PlanError> {
+    Ok(Plan { tool, ext: ext.into(), suffix: suffix.into(), args: args(list), ..Default::default() })
+}
+
+fn pdf_plan(action: &str, q: Quality, opts: &Options) -> Result<Plan, PlanError> {
+    let dpi = opts.dpi.unwrap_or(150).clamp(36, 600).to_string();
+    let pages = |post| Plan {
+        tool: Tool::Mutool,
+        dir: true,
+        suffix: "_pages".into(),
+        args: args(&["draw", "-q", "-r", &dpi, "-o", "{out}/page-%03d.png", "{in}"]),
+        post,
+        ..Default::default()
+    };
+    match action {
+        "pages_png" => Ok(pages(None)),
+        "pages_jpg" => Ok(pages(Some(Post::PngPagesToJpg(q)))),
+        "extract_text" => tool_plan(Tool::Mutool, "txt", "", &["draw", "-q", "-F", "txt", "-o", "{out}", "{in}"]),
+        // Rewrites the file: drops unused objects, deflates streams and
+        // re-encodes pictures above the target resolution as JPEG.
+        "compress" => {
+            let dpi = q.pick("200", "150", "96");
+            let jpeg = q.pick("jpeg:85", "jpeg:72", "jpeg:55");
+            tool_plan(
+                Tool::Mutool,
+                "pdf",
+                "_compressed",
+                &[
+                    "clean", "-gggg", "-z", "-f", "-i", "-Z",
+                    "--color-image-subsample-dpi", dpi, "--gray-image-subsample-dpi", dpi,
+                    "--color-image-recompress-method", jpeg, "--gray-image-recompress-method", jpeg,
+                    "{in}", "{out}",
+                ],
+            )
+        }
+        "split" => Ok(Plan {
+            tool: Tool::Mutool,
+            dir: true,
+            per_page: true,
+            suffix: "_pages".into(),
+            args: args(&["merge", "-o", "{out}/page-{page3}.pdf", "{in}", "{page}"]),
+            ..Default::default()
+        }),
+        "merge" => tool_plan(Tool::Mutool, "pdf", "_merged", &["merge", "-o", "{out}", "{inputs}"]),
+        _ => Err(PlanError::NotReady),
+    }
+}
+
+/// Pandoc reader for an input extension.
+fn pandoc_from(ext: &str) -> Option<&'static str> {
+    Some(match ext {
+        // Plain text is read as Markdown: paragraphs survive, nothing is lost.
+        "md" | "markdown" | "txt" => "markdown",
+        "html" | "htm" => "html",
+        "epub" => "epub",
+        "fb2" => "fb2",
+        "docx" => "docx",
+        _ => return None,
+    })
+}
+
+fn markup_plan(action: &str, input_ext: &str) -> Result<Plan, PlanError> {
+    let from = pandoc_from(input_ext).ok_or(PlanError::NotReady)?;
+    let (ext, writer): (&str, &[&str]) = match action {
+        "to_md" => ("md", &["-t", "gfm"]),
+        // Standalone page with pictures inlined, so it opens anywhere.
+        "to_html" => ("html", &["-t", "html5", "-s", "--embed-resources"]),
+        "to_epub" => ("epub", &["-t", "epub3"]),
+        "to_fb2" => ("fb2", &["-t", "fb2"]),
+        "to_txt" => ("txt", &["-t", "plain"]),
+        _ => return Err(PlanError::NotReady),
+    };
+    let mut list = vec!["{in}", "-f", from];
+    list.extend(writer);
+    list.extend(["-o", "{out}"]);
+    tool_plan(Tool::Pandoc, ext, "", &list)
 }
 
 fn is_video(ext: &str) -> bool {
@@ -584,7 +701,8 @@ mod tests {
     #[test]
     fn unsupported_yet() {
         let none = Probe::default();
-        assert_eq!(plan("pages_png", "pdf", none, &Options::default()), Err(PlanError::NotReady));
+        // Markup to PDF would need LaTeX, which is not shipped.
+        assert_eq!(plan("to_pdf", "md", none, &Options::default()), Err(PlanError::NotReady));
         // A trim needs a range that lies inside the file.
         let range = |start, end| Options { start, end, ..Default::default() };
         assert_eq!(plan("trim", "mp4", probe(10.0), &range(None, None)), Err(PlanError::BadRange));

@@ -20,6 +20,10 @@ export interface Action {
   options?: Field[];
   /** Always opens the submenu: running without choices makes no sense. */
   ask?: boolean;
+  /** Optional engine the action needs; downloaded on first use. */
+  engine?: "mupdf" | "pandoc";
+  /** Works on the whole selection at once and needs at least two files. */
+  multi?: boolean;
   /** Short button text for quick actions; the full label becomes a tooltip. */
   glyph?: string;
   /** Planned but not implemented yet; kept in the catalog, hidden from the menu. */
@@ -27,7 +31,7 @@ export interface Action {
 }
 
 /** Submenu fields; values mirror `recipes::Options` on the Rust side. */
-export type Field = "quality" | "height" | "width" | "fps" | "start" | "end" | "side" | "ratio" | "page";
+export type Field = "quality" | "height" | "width" | "fps" | "start" | "end" | "side" | "ratio" | "page" | "dpi";
 export type Quality = "high" | "normal" | "small";
 export interface Options {
   quality?: Quality;
@@ -40,6 +44,7 @@ export interface Options {
   side?: number;
   ratio?: [number, number];
   page?: "a4" | "original";
+  dpi?: number;
 }
 
 /** Fields typed as text (a time) rather than picked from chips. */
@@ -54,6 +59,7 @@ export const CHOICES: Partial<Record<Field, (string | number)[]>> = {
   side: [3840, 2560, 1920, 1280, 800, 512],
   ratio: ["1:1", "4:3", "3:2", "16:9", "9:16", "4:5"],
   page: ["a4", "original"],
+  dpi: [72, 150, 300],
 };
 
 /** Choices for a field of this action; resizing has no "original" size. */
@@ -147,32 +153,64 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "strip_meta", keywords: "exif gps метаданные" },
   ],
   pdf: [
-    { id: "pages_png", keywords: "png картинки images", soon: true },
-    { id: "pages_jpg", keywords: "jpg картинки images", soon: true },
-    { id: "extract_text", keywords: "txt текст", soon: true },
-    { id: "compress", keywords: "сжать size", soon: true },
+    { id: "merge", keywords: "объединить склеить join", engine: "mupdf", multi: true },
+    { id: "pages_png", keywords: "png картинки images", engine: "mupdf", options: ["dpi"] },
+    { id: "pages_jpg", keywords: "jpg картинки images", engine: "mupdf", options: ["dpi", "quality"] },
+    { id: "extract_text", keywords: "txt текст", engine: "mupdf" },
+    { id: "compress", keywords: "сжать size", engine: "mupdf", options: QUALITY },
+    { id: "split", keywords: "разделить страницы pages", engine: "mupdf" },
   ],
-  markup: ["md", "html", "epub", "fb2", "txt"].map((e) => ({ ...convert(e, e === "md" ? "markdown" : ""), soon: true })),
+  markup: ["md", "html", "epub", "fb2", "txt"].map((e) => ({
+    ...convert(e, e === "md" ? "markdown" : e === "epub" || e === "fb2" ? "книга book" : ""),
+    engine: "pandoc" as const,
+  })),
   unknown: [],
 };
 
-const ext = (f: FileInfo) => (f.ext === "jpeg" ? "jpg" : f.ext);
+const SAME: Record<string, string> = { jpeg: "jpg", markdown: "md", htm: "html" };
+const ext = (f: FileInfo) => SAME[f.ext] ?? f.ext;
 
 /** Inputs no engine can read yet (SVG waits for libvips). */
 const UNREADABLE = new Set(["svg"]);
 
-/** True when some selected file has a type the menu knows but cannot handle yet. */
-export function notSupportedYet(files: FileInfo[]): boolean {
-  return files.some((f) => UNREADABLE.has(f.ext) || ACTIONS[f.kind].every((a) => a.soon));
+/** Mirror of `engines::EngineInfo` on the Rust side. */
+export interface EngineInfo {
+  name: string;
+  title: string;
+  version: string;
+  license: string;
+  purpose: string;
+  size: number;
+  available: boolean;
+  installed: boolean;
 }
 
-/** Actions valid for every selected file, in catalog order. */
-export function actionsFor(files: FileInfo[]): Action[] {
-  if (files.length === 0 || notSupportedYet(files)) return [];
+/** The engine an action still has to download, if any. */
+export function missingEngine(a: Action, engines: EngineInfo[]): EngineInfo | undefined {
+  const e = a.engine && engines.find((x) => x.name === a.engine);
+  return e && !e.installed ? e : undefined;
+}
+
+/** True when some selected file has a type the menu knows but cannot handle yet. */
+export function notSupportedYet(files: FileInfo[], engines: EngineInfo[] = []): boolean {
+  const usable = (a: Action) => !a.soon && engines.find((e) => e.name === a.engine)?.available !== false;
+  return files.some((f) => UNREADABLE.has(f.ext) || !ACTIONS[f.kind].some(usable));
+}
+
+/** Actions valid for every selected file, in catalog order. Actions whose
+ * engine has no build for this system are left out. */
+export function actionsFor(files: FileInfo[], engines: EngineInfo[] = []): Action[] {
+  if (files.length === 0 || notSupportedYet(files, engines)) return [];
   const kinds = new Set(files.map((f) => f.kind));
   const [first, ...rest] = [...kinds];
   const common = ACTIONS[first].filter((a) => rest.every((k) => ACTIONS[k].some((b) => b.id === a.id)));
-  return common.filter((a) => !a.soon && (!a.target || files.some((f) => ext(f) !== a.target)));
+  return common.filter(
+    (a) =>
+      !a.soon &&
+      engines.find((e) => e.name === a.engine)?.available !== false &&
+      (!a.multi || files.length > 1) &&
+      (!a.target || files.some((f) => ext(f) !== a.target)),
+  );
 }
 
 export function quickFor(files: FileInfo[]): Action[] {
