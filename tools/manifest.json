@@ -1,0 +1,25 @@
+{
+  "$comment": "External tools bundled with Mutabor. Binaries are never committed: `npm run tools` downloads each archive from its official source and refuses to continue if the SHA-256 does not match. Hashes come from the release pages.",
+  "ffmpeg": {
+    "purpose": "video, audio, GIF",
+    "license": "GPL-3.0",
+    "version": "9.0.2",
+    "builds": {
+      "x86_64-pc-windows-msvc": {
+        "source": "Gyan.dev essentials build, linked from https://ffmpeg.org/download.html",
+        "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+        "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
+        "files": {
+          "bin/ffmpeg.exe": "ffmpeg"
+        }
+      }
+    }
+  },
+  "planned": {
+    "$comment": "Filled in when each engine is integrated; macOS and Linux ffmpeg builds come with the CI setup.",
+    "libvips": "images, HEIC, SVG (LGPL-2.1) https://github.com/libvips/libvips/releases",
+    "pdfium": "PDF rendering (BSD-3-Clause) https://github.com/bblanchon/pdfium-binaries/releases",
+    "qpdf": "PDF merge, split, compress (Apache-2.0) https://github.com/qpdf/qpdf/releases",
+    "pandoc": "markup and e-books, downloaded on first use (GPL-2.0-or-later) https://github.com/jgm/pandoc/releases"
+  }
+}

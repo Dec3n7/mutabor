@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the popup menu and the progress toast",
+  "windows": [
+    "menu",
+    "toast"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "opener:default",
+    "opener:allow-reveal-item-in-dir"
+  ]
+}
