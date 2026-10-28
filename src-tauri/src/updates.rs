@@ -44,7 +44,7 @@ fn newer(candidate: &str, current: &str) -> bool {
 
 /// Asks GitHub for the latest release; Ok(None) when this build is current.
 pub fn check() -> Result<Option<Update>, String> {
-    let response = ureq::get(LATEST)
+    let response = crate::net::agent().get(LATEST)
         .header("User-Agent", concat!("Mutabor/", env!("CARGO_PKG_VERSION")))
         .header("Accept", "application/vnd.github+json")
         .config()

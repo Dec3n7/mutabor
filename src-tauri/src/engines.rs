@@ -256,7 +256,7 @@ fn download(
     cancel: &AtomicBool,
     progress: &mut impl FnMut(u8),
 ) -> Result<(), String> {
-    let response = ureq::get(url).call().map_err(|e| format!("download: {e}"))?;
+    let response = crate::net::agent().get(url).call().map_err(|e| format!("download: {e}"))?;
     let total = response
         .headers()
         .get("content-length")

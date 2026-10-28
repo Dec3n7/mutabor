@@ -8,6 +8,7 @@ mod selection;
 mod settings;
 mod svg;
 mod matting;
+mod net;
 mod updates;
 
 use std::collections::HashMap;
