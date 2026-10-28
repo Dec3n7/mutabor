@@ -179,6 +179,28 @@ fn save_settings(app: AppHandle, store: State<'_, settings::Store>, next: settin
     Ok(())
 }
 
+const CROP: &str = "crop";
+
+/// Opens the crop window for these pictures; it shows them one by one.
+#[tauri::command]
+fn open_crop(app: AppHandle, paths: Vec<String>) {
+    if let Some(win) = app.get_webview_window(CROP) {
+        let _ = app.emit_to(CROP, "crop:open", paths);
+        let _ = win.center();
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    }
+}
+
+/// Preview of a picture for the crop window. Runs ffmpeg, so off the main thread.
+#[tauri::command]
+async fn crop_preview(path: String) -> Result<jobs::Preview, String> {
+    tauri::async_runtime::spawn_blocking(move || jobs::preview(std::path::Path::new(&path)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     show_settings(&app);
@@ -329,7 +351,9 @@ pub fn run() {
             install_engine,
             remove_engine,
             open_settings,
-            set_tray_language
+            set_tray_language,
+            open_crop,
+            crop_preview
         ])
         .setup(|app| {
             #[cfg(desktop)]

@@ -121,7 +121,7 @@ function renderList() {
         side.append(badge);
       }
       side.append(el("span", "key", idx < 9 ? String(idx + 1) : ""));
-      if (a.options?.length) {
+      if (a.options?.length && !a.window) {
         const more = el("button", "more", "›");
         more.title = t("options_of", { name: label(a) });
         more.onclick = (e) => {
@@ -259,6 +259,10 @@ function runConfig() {
 async function run(a: Action, options?: Options) {
   const missing = missingEngine(a, engines);
   if (missing) return offerEngine(a, missing, options);
+  if (a.window && !options) {
+    if (inTauri) await invoke("open_crop", { paths: files.map((f) => f.path) });
+    return hide();
+  }
   if (a.ask && !options) return openConfig(a);
   try {
     await invoke("run_action", { action: a.id, paths: files.map((f) => f.path), options: options ?? null });
@@ -377,7 +381,7 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     select(selected + (e.key === "ArrowDown" ? 1 : -1));
-  } else if (current?.options?.length && ((e.key === "Enter" && e.shiftKey) || (e.key === "ArrowRight" && caretAtEnd))) {
+  } else if (current?.options?.length && !current.window && ((e.key === "Enter" && e.shiftKey) || (e.key === "ArrowRight" && caretAtEnd))) {
     e.preventDefault();
     openConfig(current);
   } else if (e.key === "Enter" && current) {

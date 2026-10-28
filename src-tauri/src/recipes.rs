@@ -51,6 +51,8 @@ pub struct Options {
     pub speed: Option<f32>,
     /// Moment in seconds (a still frame).
     pub at: Option<f64>,
+    /// Exact crop area in the picture's pixels: x, y, width, height.
+    pub rect: Option<[u32; 4]>,
 }
 
 impl Options {
@@ -59,6 +61,7 @@ impl Options {
         self.start = None;
         self.end = None;
         self.at = None;
+        self.rect = None;
         self
     }
 }
@@ -452,7 +455,7 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
 
 /// Paints transparent areas white, for formats that cannot store alpha
 /// (otherwise they turn black).
-const FLATTEN: &str = "format=rgba,split[fg][bg];[bg]format=rgb24,drawbox=c=white:t=fill[bg];[bg][fg]overlay=format=rgb";
+pub const FLATTEN: &str = "format=rgba,split[fg][bg];[bg]format=rgb24,drawbox=c=white:t=fill[bg];[bg][fg]overlay=format=rgb";
 
 /// Where an edited image goes when its own format cannot be written back.
 fn writable_ext(input_ext: &str) -> &str {
@@ -545,11 +548,16 @@ fn image_plan(action: &str, input_ext: &str, quality: Quality, opts: &Options) -
             (same, "_resized", Some(fit))
         }
         // The largest centred area with the chosen proportions.
-        "crop" => {
-            let [w, h] = opts.ratio.unwrap_or([1, 1]);
-            let (w, h) = (w.max(1), h.max(1));
-            (same, "_cropped", Some(format!("crop='min(iw,ih*{w}/{h})':'min(ih,iw*{h}/{w})'")))
-        }
+        // An area drawn in the crop window, else the largest centred area
+        // with the chosen proportions (hotkeys and chains).
+        "crop" => match opts.rect {
+            Some([x, y, w, h]) => (same, "_cropped", Some(format!("crop={}:{}:{x}:{y}", w.max(1), h.max(1)))),
+            None => {
+                let [w, h] = opts.ratio.unwrap_or([1, 1]);
+                let (w, h) = (w.max(1), h.max(1));
+                (same, "_cropped", Some(format!("crop='min(iw,ih*{w}/{h})':'min(ih,iw*{h}/{w})'")))
+            }
+        },
         "to_pdf" => {
             let page = opts.page.unwrap_or_default();
             let a = encode_image("jpg", input_ext, &[], Quality::High)?;
@@ -643,6 +651,16 @@ fn is_video(ext: &str) -> bool {
     crate::files::kind_of(ext) == crate::files::Kind::Video
 }
 
+/// Picture size from the first video stream in ffmpeg's banner:
+/// "Stream #0:0: Video: mjpeg ..., yuvj420p(pc), 4032x3024, ..." -> (4032, 3024).
+pub fn parse_size(banner: &str) -> Option<(u32, u32)> {
+    let line = banner.lines().find(|l| l.trim_start().starts_with("Stream #") && l.contains(": Video:"))?;
+    line.split([',', ' ', '[']).find_map(|part| {
+        let (w, h) = part.split_once('x')?;
+        Some((w.parse().ok()?, h.parse().ok()?))
+    })
+}
+
 /// Parses "Duration: 00:01:02.50" from ffmpeg's banner output.
 fn parse_duration(stderr: &str) -> Option<f64> {
     let rest = stderr.split("Duration: ").nth(1)?;
@@ -671,6 +689,14 @@ mod tests {
         assert!(plan("to_gif", "mp4", p, &Options::default()).is_ok());
         let with_audio = format!("{silent}\n  Stream #0:1[0x2](und): Audio: aac (LC), 44100 Hz, stereo");
         assert!(Probe::parse(&with_audio).has_audio);
+    }
+
+    #[test]
+    fn picture_size() {
+        let banner = "Input #0, image2
+  Stream #0:0: Video: mjpeg (Baseline), yuvj420p(pc, bt470bg/unknown/unknown), 4032x3024 [SAR 72:72 DAR 4:3], 25 fps";
+        assert_eq!(parse_size(banner), Some((4032, 3024)));
+        assert_eq!(parse_size("  Stream #0:0: Audio: mp3, 44100 Hz"), None);
     }
 
     #[test]
@@ -792,6 +818,14 @@ mod tests {
         };
         // 64x48 cropped to 16:9 is 64x36; resized to a 32 px longest side is 32x24.
         assert!(info("photo_crop_cropped.jpg").contains("64x36"), "crop ratio");
+        let rect = Options { rect: Some([10, 5, 30, 20]), ..Default::default() };
+        let p = plan("crop", "jpg", Probe::default(), &rect).unwrap();
+        let out = dir.join("photo_rect.jpg");
+        let mut args = vec!["-i".to_string(), jpg.to_string_lossy().into_owned()];
+        args.extend(p.args.iter().cloned());
+        args.push(out.to_string_lossy().into_owned());
+        run(&args.iter().map(String::as_str).collect::<Vec<_>>());
+        assert!(info("photo_rect.jpg").contains("30x20"), "crop rect");
         assert!(info("photo_resize_resized.jpg").contains("32x24"), "resize");
         // Trimming 1.0–2.5 s leaves 1.5 s.
         let trimmed = Probe::parse(&info("sample_trim_trimmed.mp4")).duration.unwrap();

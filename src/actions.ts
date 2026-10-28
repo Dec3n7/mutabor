@@ -32,6 +32,9 @@ export interface Action {
   soon?: boolean;
   /** Only offered for a picture taken from the clipboard. */
   clipboard?: boolean;
+  /** Opens its own window (crop) instead of running; `options` then only
+   * apply to chains and hotkeys. */
+  window?: boolean;
 }
 
 /** Submenu fields; values mirror `recipes::Options` on the Rust side. */
@@ -183,7 +186,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     convert("ico", "icon иконка"),
     convert("pdf", "", ["page"]),
     { id: "resize", keywords: "размер уменьшить", options: ["side", "quality"] },
-    { id: "crop", keywords: "обрезать кадрировать", options: ["ratio"] },
+    { id: "crop", keywords: "обрезать кадрировать crop", options: ["ratio"], window: true },
     { id: "compress", keywords: "сжать size", options: QUALITY },
     { id: "strip_meta", keywords: "exif gps метаданные" },
   ],

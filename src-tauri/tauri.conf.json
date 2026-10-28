@@ -49,6 +49,17 @@
         "minHeight": 420,
         "visible": false,
         "center": true
+      },
+      {
+        "label": "crop",
+        "title": "Mutabor",
+        "url": "crop.html",
+        "width": 960,
+        "height": 720,
+        "minWidth": 560,
+        "minHeight": 420,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

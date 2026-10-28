@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <title>Mutabor</title>
+    <script type="module" src="/src/crop.ts" defer></script>
+  </head>
+  <body class="crop">
+    <header class="crop-bar">
+      <span id="crop-name" class="title"></span>
+      <span id="crop-count" class="meta"></span>
+      <div id="crop-ratios" class="chips"></div>
+    </header>
+    <main id="stage">
+      <div id="canvas">
+        <img id="picture" alt="" draggable="false" />
+        <div id="frame">
+          <span id="frame-size"></span>
+          <i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i>
+          <i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i>
+        </div>
+      </div>
+      <div id="crop-status" class="empty"></div>
+    </main>
+    <footer class="crop-bar">
+      <span id="crop-hint" class="meta"></span>
+      <span class="line">
+        <button id="crop-reset" class="link"></button>
+        <button id="crop-skip" class="link"></button>
+        <button id="crop-cancel" class="link"></button>
+        <button id="crop-save" class="primary small"></button>
+      </span>
+    </footer>
+  </body>
+</html>

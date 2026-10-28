@@ -137,6 +137,52 @@ fn probe(input: &Path) -> Probe {
     }
 }
 
+/// A picture for the crop window: a JPEG small enough to show, and the
+/// size in pixels of what a crop will actually work on.
+#[derive(Serialize)]
+pub struct Preview {
+    /// data: URL of the preview JPEG.
+    pub src: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Longest side of a crop preview; the frame is scaled back to real pixels.
+const PREVIEW_SIDE: u32 = 1600;
+
+pub fn preview(input: &Path) -> Result<Preview, String> {
+    use base64::Engine;
+    // An SVG is cropped after drawing it at its default size, so preview that.
+    let tmp = (ext_of(input) == "svg").then(|| std::env::temp_dir().join("mutabor-crop-preview.png"));
+    let source = match &tmp {
+        Some(png) => {
+            crate::svg::render(input, png, None)?;
+            png.as_path()
+        }
+        None => input,
+    };
+    let banner = ffmpeg().arg("-hide_banner").arg("-i").arg(source).output().map_err(|e| e.to_string())?;
+    let (width, height) = recipes::parse_size(&String::from_utf8_lossy(&banner.stderr)).ok_or("not_a_picture")?;
+    let filter = format!(
+        "scale='min({PREVIEW_SIDE},iw)':'min({PREVIEW_SIDE},ih)':force_original_aspect_ratio=decrease,{},format=yuvj420p",
+        recipes::FLATTEN
+    );
+    let out = ffmpeg()
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .arg(source)
+        .args(["-frames:v", "1", "-vf", &filter, "-q:v", "3", "-f", "image2pipe", "-c:v", "mjpeg", "-"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if let Some(png) = tmp {
+        let _ = std::fs::remove_file(png);
+    }
+    if !out.status.success() || out.stdout.is_empty() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    let src = format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(&out.stdout));
+    Ok(Preview { src, width, height })
+}
+
 /// Probing runs ffmpeg; only audio and video need it.
 fn probe_if_media(input: &Path) -> Probe {
     match crate::files::kind_of(&ext_of(input)) {
