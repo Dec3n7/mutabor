@@ -57,6 +57,11 @@ function find(dir, rel) {
 for (const [name, tool] of Object.entries(manifest)) {
   if (name.startsWith("$") || name === "planned" || (tool.optional && !optional)) continue;
   const build = tool.builds[triple];
+  if (build?.keep) {
+    // Kept whole by the app (models, libraries); not needed for the tests.
+    console.log(`${name}: installed by the app itself, skipped`);
+    continue;
+  }
   if (!build) {
     console.warn(`${name}: no build listed for ${triple}, skipped`);
     continue;

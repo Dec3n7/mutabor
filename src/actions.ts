@@ -1,6 +1,6 @@
 // Catalog of menu actions per file kind. Labels live in i18n.ts.
 
-export type Kind = "video" | "audio" | "image" | "pdf" | "markup" | "unknown";
+export type Kind = "video" | "audio" | "image" | "pdf" | "markup" | "archive" | "unknown";
 
 export interface FileInfo {
   path: string;
@@ -23,7 +23,7 @@ export interface Action {
   /** Always opens the submenu: running without choices makes no sense. */
   ask?: boolean;
   /** Optional engine the action needs; downloaded on first use. */
-  engine?: "mupdf" | "pandoc";
+  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan";
   /** Works on the whole selection at once and needs at least two files. */
   multi?: boolean;
   /** Short button text for quick actions; the full label becomes a tooltip. */
@@ -51,7 +51,8 @@ export type Field =
   | "page"
   | "dpi"
   | "mb"
-  | "speed";
+  | "speed"
+  | "model";
 export type Quality = "high" | "normal" | "small";
 export interface Options {
   quality?: Quality;
@@ -70,6 +71,8 @@ export interface Options {
   speed?: number;
   /** Moment for a still frame, in seconds. */
   at?: number;
+  /** Upscaling model. */
+  model?: "photo" | "anime";
 }
 
 /** Fields typed as text (a time) rather than picked from chips. */
@@ -87,6 +90,7 @@ export const CHOICES: Partial<Record<Field, (string | number)[]>> = {
   dpi: [72, 150, 300],
   mb: [8, 10, 16, 25, 50, 100, 500],
   speed: [0.25, 0.5, 1.5, 2, 4],
+  model: ["photo", "anime"],
 };
 
 /** Choices for a field of this action; resizing has no "original" size. */
@@ -143,6 +147,12 @@ export const QUICK: Partial<Record<Kind, Action[]>> = {
   ],
 };
 
+/** Packing works on files of any kind (7-Zip, downloaded on first use). */
+const PACK: Action[] = [
+  { id: "pack_zip", keywords: "zip архив упаковать archive", engine: "sevenzip" },
+  { id: "pack_7z", keywords: "7z архив упаковать archive", engine: "sevenzip" },
+];
+
 export const ACTIONS: Record<Kind, Action[]> = {
   video: [
     convert("gif", "анимация animation", ["start", "end", "width", "fps"]),
@@ -162,6 +172,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "frame", keywords: "кадр скриншот png снимок screenshot", options: ["at"], ask: true },
     { id: "ringtone", keywords: "рингтон звонок iphone m4r", options: ["start"] },
     { id: "voice", keywords: "голосовое telegram телеграм ogg" },
+    ...PACK,
   ],
   audio: [
     convert("mp3", "", QUALITY),
@@ -176,6 +187,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "speed", keywords: "скорость ускорить замедлить fast slow", options: ["speed"] },
     { id: "ringtone", keywords: "рингтон звонок iphone m4r", options: ["start"] },
     { id: "voice", keywords: "голосовое telegram телеграм" },
+    ...PACK,
   ],
   image: [
     { id: "save", keywords: "сохранить png save", clipboard: true },
@@ -189,6 +201,8 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "crop", keywords: "обрезать кадрировать crop", options: ["ratio"], window: true },
     { id: "compress", keywords: "сжать size", options: QUALITY },
     { id: "strip_meta", keywords: "exif gps метаданные" },
+    { id: "upscale", keywords: "увеличить апскейл upscale esrgan качество", engine: "realesrgan", options: ["model"] },
+    ...PACK,
   ],
   pdf: [
     { id: "merge", keywords: "объединить склеить join", engine: "mupdf", multi: true },
@@ -197,11 +211,13 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "extract_text", keywords: "txt текст", engine: "mupdf" },
     { id: "compress", keywords: "сжать size", engine: "mupdf", options: QUALITY },
     { id: "split", keywords: "разделить страницы pages", engine: "mupdf" },
+    ...PACK,
   ],
-  markup: ["md", "html", "epub", "fb2", "txt"].map((e) => ({
+  markup: ["md", "html", "epub", "fb2", "txt"].map((e): Action => ({
     ...convert(e, e === "md" ? "markdown" : e === "epub" || e === "fb2" ? "книга book" : ""),
-    engine: "pandoc" as const,
-  })),
+    engine: "pandoc",
+  })).concat(PACK),
+  archive: [{ id: "extract", keywords: "распаковать unzip unrar extract", engine: "sevenzip" }, ...PACK],
   unknown: [],
 };
 
@@ -323,6 +339,7 @@ export function defaultOptions(a: Action, files: FileInfo[], quality: Quality): 
     if (f === "fps") o.fps = 12;
     if (f === "mb") o.mb = 25;
     if (f === "speed") o.speed = 2;
+    if (f === "model") o.model = "photo";
   }
   return o;
 }

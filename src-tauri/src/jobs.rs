@@ -292,13 +292,28 @@ struct Step {
     ffmpeg: bool,
 }
 
-/// Fills `{in}`, `{out}`, `{inputs}`, `{page}` and `{page3}` in a tool's arguments.
+/// The folder the inputs share, if they all sit in one.
+fn shared_parent(inputs: &[PathBuf]) -> Option<&Path> {
+    let first = inputs.first()?.parent()?;
+    inputs.iter().all(|p| p.parent() == Some(first)).then_some(first)
+}
+
+/// Fills `{in}`, `{out}`, `{inputs}`, `{names}`, `{page}` and `{page3}` in a
+/// tool's arguments. `{names}` are bare file names when the inputs share a
+/// folder (the tool runs there), so an archive holds no full paths.
 fn expand(args: &[String], inputs: &[PathBuf], out: &Path, page: Option<u32>) -> Vec<String> {
     let path = |p: &Path| p.to_string_lossy().into_owned();
     let mut v = Vec::new();
     for a in args {
         if a == "{inputs}" {
             v.extend(inputs.iter().map(|p| path(p)));
+            continue;
+        }
+        if a == "{names}" {
+            match shared_parent(inputs) {
+                Some(_) => v.extend(inputs.iter().map(|p| p.file_name().unwrap_or_default().to_string_lossy().into_owned())),
+                None => v.extend(inputs.iter().map(|p| path(p))),
+            }
             continue;
         }
         let mut a = a.replace("{in}", &path(&inputs[0])).replace("{out}", &path(out));
@@ -365,7 +380,7 @@ impl Jobs {
             Some(id) => Some(settings.custom.iter().find(|c| c.id == id).cloned().ok_or("not_ready")?),
             None => None,
         };
-        let groups: Vec<Vec<PathBuf>> = if action == "merge" {
+        let groups: Vec<Vec<PathBuf>> = if matches!(action, "merge" | "pack_zip" | "pack_7z") {
             // Explorer reports the selection in click order; file names are more predictable.
             inputs.sort_by_key(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
             vec![inputs]
@@ -480,8 +495,13 @@ impl Jobs {
                 Work::Plan { plan, program, duration, svg_side } => {
                     let dir = result_dir(app, &job.inputs[0]);
                     let ext = if plan.dir { "" } else { &plan.ext };
-                    // Named after the original even when an SVG was drawn first.
-                    let output = output_in(&dir, &job.inputs[0], &plan.suffix, ext);
+                    // Named after the original even when an SVG was drawn first;
+                    // several files packed together are named after their folder.
+                    let named_after = match (job.inputs.len() > 1, shared_parent(&job.inputs)) {
+                        (true, Some(folder)) if folder.file_name().is_some() => folder.to_path_buf(),
+                        _ => job.inputs[0].clone(),
+                    };
+                    let output = output_in(&dir, &named_after, &plan.suffix, ext);
                     self.rasterize(job.id, &job.inputs[0], *svg_side).and_then(|(first, tmp)| {
                         let mut inputs = job.inputs.clone();
                         inputs[0] = first;
@@ -666,15 +686,30 @@ impl Jobs {
                 steps.push(Step { cmd, ffmpeg: true });
             }
             _ => {
+                // Tools that read only common picture formats get a PNG copy.
+                let converted;
+                let inputs = if plan.png_input {
+                    let png = written.with_extension("mutabor-in.png");
+                    let mut cmd = ffmpeg();
+                    cmd.args(["-hide_banner", "-nostdin", "-y", "-i"]).arg(&inputs[0]).args(["-frames:v", "1"]).arg(&png);
+                    self.run_step(app, id, Step { cmd, ffmpeg: false }, None, span)?;
+                    converted = vec![png];
+                    &converted[..]
+                } else {
+                    inputs
+                };
                 let pages: Vec<Option<u32>> = if plan.per_page {
                     let n = pdf_pages(program, &inputs[0]).ok_or("couldn't count the PDF's pages")?;
                     (1..=n).map(Some).collect()
                 } else {
                     vec![None]
                 };
+                // `{tooldir}`: the tool's own folder, e.g. for its model files.
+                let tooldir = program.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned();
+                let args: Vec<String> = plan.args.iter().map(|a| a.replace("{tooldir}", &tooldir)).collect();
                 for page in pages {
                     let mut cmd = command(program);
-                    cmd.args(expand(&plan.args, inputs, written, page));
+                    cmd.args(expand(&args, inputs, written, page));
                     // Relative links (pictures in Markdown) resolve next to the input.
                     if let Some(dir) = inputs[0].parent() {
                         cmd.current_dir(dir);
@@ -699,6 +734,9 @@ impl Jobs {
             if total > 1 {
                 let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: part.1 });
             }
+        }
+        if plan.png_input {
+            let _ = std::fs::remove_file(written.with_extension("mutabor-in.png"));
         }
         if matches!(plan.post, Some(Post::PngPagesToJpg(_))) {
             for e in std::fs::read_dir(written).map_err(|e| e.to_string())?.flatten() {

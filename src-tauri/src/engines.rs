@@ -34,6 +34,22 @@ struct Build {
     size: u64,
     /// Path inside the archive -> program name.
     files: BTreeMap<String, String>,
+    /// Keep the whole unpacked archive (the program needs the models or
+    /// libraries next to it); `files` then only says where the programs are.
+    #[serde(default)]
+    keep: bool,
+}
+
+impl Build {
+    /// Where `program` lives inside the engine's folder, once installed.
+    fn locate(&self, dir: &Path, program: &str) -> Option<PathBuf> {
+        if !self.keep {
+            let path = dir.join(exe_name(program));
+            return path.is_file().then_some(path);
+        }
+        let rel = self.files.iter().find(|(_, p)| p.as_str() == program)?.0;
+        find(dir, rel)
+    }
 }
 
 fn tools() -> &'static BTreeMap<String, Tool> {
@@ -88,7 +104,7 @@ pub fn list(app: &AppHandle) -> Vec<EngineInfo> {
                 purpose: t.purpose.clone(),
                 size: build.map_or(0, |b| b.size),
                 available: build.is_some(),
-                installed: build.is_some_and(|b| b.files.values().all(|p| dir.join(exe_name(p)).is_file())),
+                installed: build.is_some_and(|b| b.files.values().all(|p| b.locate(&dir, p).is_some())),
             }
         })
         .collect()
@@ -97,8 +113,7 @@ pub fn list(app: &AppHandle) -> Vec<EngineInfo> {
 /// The installed program, e.g. ("mupdf", "mutool").
 pub fn program(app: &AppHandle, engine: &str, program: &str) -> Option<PathBuf> {
     let tool = tools().get(engine)?;
-    let path = engine_dir(app, engine, tool).join(exe_name(program));
-    path.is_file().then_some(path)
+    tool.builds.get(TARGET)?.locate(&engine_dir(app, engine, tool), program)
 }
 
 /// Downloads, verifies and unpacks an engine. `progress` gets 0–100.
@@ -116,6 +131,20 @@ pub fn install(app: &AppHandle, name: &str, cancel: &AtomicBool, mut progress: i
         let _ = std::fs::remove_dir_all(&unpacked);
         std::fs::create_dir_all(&unpacked).map_err(|e| e.to_string())?;
         extract(&archive, &unpacked)?;
+        if build.keep {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::rename(&unpacked, &dir).map_err(|e| e.to_string())?;
+            for (rel, _) in &build.files {
+                let path = find(&dir, rel).ok_or_else(|| format!("{rel} not found in the archive"))?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+                }
+                let _ = path;
+            }
+            return Ok(());
+        }
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         for (rel, program) in &build.files {
             let src = find(&unpacked, rel).ok_or_else(|| format!("{rel} not found in the archive"))?;
@@ -199,9 +228,19 @@ fn download(
     Ok(())
 }
 
-/// bsdtar reads both zip and tar.gz; it ships with Windows 10+ and macOS,
-/// and Linux archives are tar.gz, which GNU tar reads.
+/// bsdtar reads zip, tar.gz, tar.xz and 7-Zip (7-Zip's own installer, too);
+/// it ships with Windows 10+ and macOS. On Linux, tarballs go to GNU tar and
+/// zips to unzip.
 fn extract(archive: &Path, into: &Path) -> Result<(), String> {
+    // GNU tar on Linux does not read zip.
+    if cfg!(target_os = "linux") && archive.extension().is_some_and(|e| e == "zip") {
+        let out = Command::new("unzip").arg("-q").arg("-o").arg(archive).arg("-d").arg(into).output();
+        let out = out.map_err(|e| format!("unzip: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("unzip: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        }
+        return Ok(());
+    }
     let tar = if cfg!(windows) {
         PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()))
             .join("System32")

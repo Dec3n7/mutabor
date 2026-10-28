@@ -21,7 +21,7 @@ import { DEFAULT_SETTINGS, Settings, Update, isModifier, showHotkey, specOf } fr
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const REPO = "https://github.com/Dec3n7/mutabor";
-const KINDS: Exclude<Kind, "unknown">[] = ["video", "audio", "image", "pdf", "markup"];
+const KINDS = ["video", "audio", "image", "pdf", "markup"] as const;
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const hotkey = $<HTMLButtonElement>("#hotkey");
@@ -229,6 +229,7 @@ function chipLabel(f: Field, v: string | number): string {
   if (f === "page") return t(`page_${v}`);
   if (f === "mb") return t("mb_n", { n: v });
   if (f === "speed") return `×${v}`;
+  if (f === "model") return t(`model_${v}`);
   if (v === 0) return t("original");
   if (f === "height") return `${v}p`;
   if (f === "width" || f === "side") return `${v} px`;

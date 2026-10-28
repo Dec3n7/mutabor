@@ -53,6 +53,16 @@ pub struct Options {
     pub at: Option<f64>,
     /// Exact crop area in the picture's pixels: x, y, width, height.
     pub rect: Option<[u32; 4]>,
+    /// Upscaling model: photos or drawings.
+    pub model: Option<Model>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Model {
+    #[default]
+    Photo,
+    Anime,
 }
 
 impl Options {
@@ -94,6 +104,10 @@ pub enum Tool {
     /// MuPDF's `mutool`.
     Mutool,
     Pandoc,
+    /// 7-Zip: `7z` on Windows, `7zz` elsewhere.
+    SevenZip,
+    /// Real-ESRGAN (ncnn/Vulkan) picture upscaler.
+    Upscaler,
 }
 
 impl Tool {
@@ -103,6 +117,8 @@ impl Tool {
             Tool::Ffmpeg => None,
             Tool::Mutool => Some(("mupdf", "mutool")),
             Tool::Pandoc => Some(("pandoc", "pandoc")),
+            Tool::SevenZip => Some(("sevenzip", "7z")),
+            Tool::Upscaler => Some(("realesrgan", "realesrgan-ncnn-vulkan")),
         }
     }
 }
@@ -120,6 +136,8 @@ pub struct Plan {
     pub dir: bool,
     /// Runs `args` once per PDF page.
     pub per_page: bool,
+    /// The tool reads only JPEG/PNG/WebP: other pictures become a PNG first.
+    pub png_input: bool,
     /// Output extension without the dot.
     pub ext: String,
     /// Appended to the input's file stem, e.g. "_compressed".
@@ -306,7 +324,14 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
         return Err(PlanError::NoAudio);
     }
     let q = opts.quality.unwrap_or_else(|| default_quality(action));
+    // Packing works on any files.
+    match action {
+        "pack_zip" => return tool_plan(Tool::SevenZip, "zip", "", &["a", "-tzip", "-y", "{out}", "{names}"]),
+        "pack_7z" => return tool_plan(Tool::SevenZip, "7z", "", &["a", "-t7z", "-y", "{out}", "{names}"]),
+        _ => {}
+    }
     match crate::files::kind_of(input_ext) {
+        crate::files::Kind::Archive => return archive_plan(action),
         crate::files::Kind::Image => return image_plan(action, input_ext, q, opts),
         crate::files::Kind::Pdf => return pdf_plan(action, q, opts),
         crate::files::Kind::Markup => return markup_plan(action, input_ext),
@@ -535,6 +560,7 @@ fn image_plan(action: &str, input_ext: &str, quality: Quality, opts: &Options) -
         "to_ico" => ("ico", "", None),
         // A picture pasted from the clipboard, kept as a file in Pictures.
         "save" => ("png", "", None),
+        "upscale" => return upscale_plan(input_ext, opts),
         "rotate_left" => (same, "_rotated", Some("transpose=2".into())),
         "rotate_right" => (same, "_rotated", Some("transpose=1".into())),
         "flip_h" => (same, "_flipped", Some("hflip".into())),
@@ -645,6 +671,35 @@ fn markup_plan(action: &str, input_ext: &str) -> Result<Plan, PlanError> {
     list.extend(writer);
     list.extend(["-o", "{out}"]);
     tool_plan(Tool::Pandoc, ext, "", &list)
+}
+
+/// Unpacks into a folder named after the archive, next to it.
+fn archive_plan(action: &str) -> Result<Plan, PlanError> {
+    match action {
+        "extract" => Ok(Plan {
+            tool: Tool::SevenZip,
+            dir: true,
+            args: args(&["x", "-y", "{in}", "-o{out}"]),
+            ..Default::default()
+        }),
+        _ => Err(PlanError::NotReady),
+    }
+}
+
+/// Real-ESRGAN, four times larger; it writes PNG.
+fn upscale_plan(input_ext: &str, opts: &Options) -> Result<Plan, PlanError> {
+    let model = match opts.model.unwrap_or_default() {
+        Model::Photo => "realesrgan-x4plus",
+        Model::Anime => "realesrgan-x4plus-anime",
+    };
+    Ok(Plan {
+        tool: Tool::Upscaler,
+        ext: "png".into(),
+        suffix: "_x4".into(),
+        png_input: !matches!(input_ext, "jpg" | "jpeg" | "png" | "webp"),
+        args: args(&["-i", "{in}", "-o", "{out}", "-m", "{tooldir}/models", "-n", model, "-s", "4", "-f", "png"]),
+        ..Default::default()
+    })
 }
 
 fn is_video(ext: &str) -> bool {
@@ -857,6 +912,23 @@ mod tests {
         // The frontend sends lowercase names and may omit any field.
         let parsed: Options = serde_json::from_str(r#"{"quality":"small","height":480}"#).unwrap();
         assert_eq!(parsed, opts(Quality::Small, Some(480)));
+    }
+
+    #[test]
+    fn plugin_recipes() {
+        let none = Probe::default();
+        let o = Options::default();
+        let x = plan("extract", "rar", none, &o).unwrap();
+        assert_eq!((x.tool, x.dir), (Tool::SevenZip, true));
+        assert!(x.args.contains(&"-o{out}".to_string()));
+        // Packing works whatever the files are.
+        for ext in ["mp4", "jpg", "pdf", "zip"] {
+            assert_eq!(plan("pack_zip", ext, none, &o).unwrap().ext, "zip");
+        }
+        let up = plan("upscale", "heic", none, &Options { model: Some(Model::Anime), ..Default::default() }).unwrap();
+        assert!(up.png_input, "HEIC goes through PNG first");
+        assert!(up.args.contains(&"realesrgan-x4plus-anime".to_string()));
+        assert!(!plan("upscale", "jpg", none, &o).unwrap().png_input);
     }
 
     #[test]

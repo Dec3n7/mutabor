@@ -1,7 +1,7 @@
 // Mirror of `settings::Settings` on the Rust side, and hotkey helpers
 // shared by the menu and the settings window.
 
-import type { CustomAction, Kind, Options, Quality } from "./actions";
+import type { CustomAction, Options, Quality } from "./actions";
 
 export interface Settings {
   hotkey: string;
@@ -11,7 +11,7 @@ export interface Settings {
   last: Record<string, Options>;
   copy_result: boolean;
   /** Files of each kind converted at the same time. */
-  parallel: Record<Exclude<Kind, "unknown">, number>;
+  parallel: Record<"video" | "audio" | "image" | "pdf" | "markup", number>;
   /** Action id (or "custom:<id>") -> shortcut. */
   hotkeys: Record<string, string>;
   custom: CustomAction[];

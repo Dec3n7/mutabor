@@ -10,6 +10,7 @@ pub enum Kind {
     Image,
     Pdf,
     Markup,
+    Archive,
     Unknown,
 }
 
@@ -30,6 +31,7 @@ pub fn kind_of(ext: &str) -> Kind {
         | "heic" | "heif" | "svg" => Kind::Image,
         "pdf" => Kind::Pdf,
         "md" | "markdown" | "html" | "htm" | "epub" | "fb2" | "txt" | "docx" => Kind::Markup,
+        "zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "iso" | "cab" | "arj" | "lzh" => Kind::Archive,
         _ => Kind::Unknown,
     }
 }

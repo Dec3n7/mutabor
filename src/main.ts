@@ -160,6 +160,7 @@ function choiceLabel(field: Field, v: string | number): string {
   if (field === "width" || field === "side") return `${v} px`;
   if (field === "mb") return t("mb_n", { n: v });
   if (field === "speed") return `×${v}`;
+  if (field === "model") return t(`model_${v}`);
   return String(v);
 }
 

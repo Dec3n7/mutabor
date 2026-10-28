@@ -111,6 +111,80 @@
       }
     }
   },
+  "sevenzip": {
+    "purpose": "archives: unpack ZIP, RAR, 7Z, TAR, ISO and more; pack into ZIP or 7Z",
+    "license": "LGPL-2.1-or-later with the unRAR restriction",
+    "version": "26.05",
+    "optional": true,
+    "title": "7-Zip",
+    "builds": {
+      "x86_64-pc-windows-msvc": {
+        "source": "Official release on GitHub (the installer is a 7-Zip archive)",
+        "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-x64.exe",
+        "sha256": "fd99e86f57d8f429ef5ed045bf98315af962e2309b0f1ba87a147a44c71647d0",
+        "size": 1663506,
+        "keep": true,
+        "files": {
+          "7z.exe": "7z"
+        }
+      },
+      "aarch64-apple-darwin": {
+        "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-mac.tar.xz",
+        "sha256": "12ef6830317743cfd3f0ab1724bde43fcc270d8b6d8564f8c12c2a2b7f993570",
+        "size": 1868068,
+        "keep": true,
+        "files": {
+          "7zz": "7z"
+        }
+      },
+      "x86_64-apple-darwin": {
+        "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-mac.tar.xz",
+        "sha256": "12ef6830317743cfd3f0ab1724bde43fcc270d8b6d8564f8c12c2a2b7f993570",
+        "size": 1868068,
+        "keep": true,
+        "files": {
+          "7zz": "7z"
+        }
+      },
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-linux-x64.tar.xz",
+        "sha256": "22cf82fcc6eb7474f1d5bb4f02c0f8ebd573a718089d6833dc30f8350a3b232e",
+        "size": 1579976,
+        "keep": true,
+        "files": {
+          "7zz": "7z"
+        }
+      },
+      "aarch64-unknown-linux-gnu": {
+        "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-linux-arm64.tar.xz",
+        "sha256": "0b71f6cfc34669b3bf69f2347efd3429f77020665003a13b9cdc53b784270421",
+        "size": 1317128,
+        "keep": true,
+        "files": {
+          "7zz": "7z"
+        }
+      }
+    }
+  },
+  "realesrgan": {
+    "purpose": "pictures four times larger with AI (needs a Vulkan graphics card)",
+    "license": "BSD-3-Clause",
+    "version": "0.2.5.0",
+    "optional": true,
+    "title": "Real-ESRGAN",
+    "builds": {
+      "x86_64-pc-windows-msvc": {
+        "source": "Official release on GitHub; hashes computed from the release files",
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
+        "sha256": "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d",
+        "size": 45474481,
+        "keep": true,
+        "files": {
+          "realesrgan-ncnn-vulkan.exe": "realesrgan-ncnn-vulkan"
+        }
+      }
+    }
+  },
   "planned": {
     "$comment": "Filled in when each engine is integrated; MuPDF has no official macOS or Linux build yet.",
     "libvips": "images, HEIC, SVG (LGPL-2.1) https://github.com/libvips/libvips/releases"
