@@ -1,3 +1,4 @@
+mod clipboard;
 mod engines;
 mod files;
 mod jobs;
@@ -6,7 +7,8 @@ mod recipes;
 mod selection;
 mod settings;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
@@ -19,13 +21,31 @@ const SETTINGS: &str = "settings";
 #[derive(Clone, Serialize)]
 struct MenuOpen {
     files: Vec<files::FileInfo>,
+    /// "selection", "clipboard_files", "clipboard_image" or "none".
+    source: &'static str,
     settings: settings::Settings,
     engines: Vec<engines::EngineInfo>,
 }
 
-/// Collects the selection, places the popup next to the cursor and shows it.
+/// The files to work on: the file manager's selection, else whatever was
+/// copied to the clipboard (files, or a picture such as a screenshot).
+fn gather() -> (Vec<files::FileInfo>, &'static str) {
+    let selected = files::describe(selection::selected_paths());
+    if !selected.is_empty() {
+        return (selected, "selection");
+    }
+    match clipboard::read() {
+        Some(clipboard::Copied::Files(paths)) => (files::describe(paths), "clipboard_files"),
+        Some(clipboard::Copied::Image(png)) => {
+            (files::describe([png.to_string_lossy().into_owned()]), "clipboard_image")
+        }
+        None => (Vec::new(), "none"),
+    }
+}
+
+/// Collects the files, places the popup next to the cursor and shows it.
 fn open_menu(app: &AppHandle) {
-    let files = files::describe(selection::selected_paths());
+    let (files, source) = gather();
     let Some(win) = app.get_webview_window(MENU) else {
         return;
     };
@@ -52,9 +72,26 @@ fn open_menu(app: &AppHandle) {
 
     let settings = app.state::<settings::Store>().get(app);
     let engines = engines::list(app);
-    let _ = app.emit_to(MENU, "menu:open", MenuOpen { files, settings, engines });
+    let _ = app.emit_to(MENU, "menu:open", MenuOpen { files, source, settings, engines });
     let _ = win.show();
     let _ = win.set_focus();
+}
+
+/// An action hotkey: runs the action on the selection without the menu,
+/// with the remembered or default options. Problems go to the toast.
+fn run_hotkey(app: &AppHandle, action: &str) {
+    let (files, _) = gather();
+    if files.is_empty() {
+        jobs::notice(app, "nothing_selected");
+        return;
+    }
+    let settings = app.state::<settings::Store>().get(app);
+    let opts = settings.options_for(action, None);
+    let paths = files.into_iter().map(|f| f.path).collect();
+    let jobs = app.state::<Arc<jobs::Jobs>>().inner().clone();
+    if let Err(e) = jobs.start(app, action, paths, &opts, &settings) {
+        jobs::notice(app, &e);
+    }
 }
 
 /// Starts the action on every selected file. Probing the inputs runs
@@ -83,8 +120,9 @@ async fn run_action(
             Err(e) => eprintln!("settings: {e}"),
         }
     }
+    let settings = store.get(&app);
     let jobs = jobs.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || jobs.start(&app, &action, paths, &opts))
+    tauri::async_runtime::spawn_blocking(move || jobs.start(&app, &action, paths, &opts, &settings))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -122,14 +160,18 @@ fn get_settings(app: AppHandle, store: State<'_, settings::Store>) -> settings::
     store.get(&app)
 }
 
-/// Saves the settings, re-registering the hotkey first when it changed so a
-/// combination taken by another program is rejected and nothing is saved.
+/// Saves the settings, re-registering the hotkeys first when they changed so
+/// a combination taken by another program is rejected and nothing is saved.
 #[tauri::command]
 fn save_settings(app: AppHandle, store: State<'_, settings::Store>, next: settings::Settings) -> Result<(), String> {
     let old = store.get(&app);
     #[cfg(desktop)]
-    if next.hotkey != old.hotkey {
-        swap_hotkey(&app, &old.hotkey, &next.hotkey)?;
+    if next.hotkey != old.hotkey || next.hotkeys != old.hotkeys {
+        if let Err(e) = register_hotkeys(&app, &next) {
+            // Put the previous combinations back so the app stays reachable.
+            let _ = register_hotkeys(&app, &old);
+            return Err(e);
+        }
     }
     store.save(&app, next.clone())?;
     let _ = app.emit("settings", next);
@@ -150,22 +192,31 @@ fn show_settings(app: &AppHandle) {
     }
 }
 
+/// Shortcut id -> what it does: "" opens the menu, anything else is an
+/// action id run directly.
+#[derive(Default)]
+struct Hotkeys(Mutex<HashMap<u32, String>>);
+
+/// Registers the menu hotkey and the action hotkeys from `s`, replacing
+/// whatever was registered before.
 #[cfg(desktop)]
-fn swap_hotkey(app: &AppHandle, old: &str, new: &str) -> Result<(), String> {
+fn register_hotkeys(app: &AppHandle, s: &settings::Settings) -> Result<(), String> {
     use std::str::FromStr;
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
-    let new_key = Shortcut::from_str(new).map_err(|_| "hotkey_invalid".to_string())?;
     let gs = app.global_shortcut();
-    if let Ok(old_key) = Shortcut::from_str(old) {
-        let _ = gs.unregister(old_key);
-    }
-    gs.register(new_key).map_err(|_| {
-        // Put the previous combination back so the app stays reachable.
-        if let Ok(old_key) = Shortcut::from_str(old) {
-            let _ = gs.register(old_key);
+    let _ = gs.unregister_all();
+    let mut map = HashMap::new();
+    let wanted = std::iter::once((&s.hotkey, String::new())).chain(s.hotkeys.iter().map(|(a, k)| (k, a.clone())));
+    for (spec, target) in wanted {
+        let key = Shortcut::from_str(spec).map_err(|_| "hotkey_invalid".to_string())?;
+        if map.contains_key(&key.id()) {
+            return Err("hotkey_duplicate".into());
         }
-        "hotkey_taken".to_string()
-    })
+        gs.register(key).map_err(|_| "hotkey_taken".to_string())?;
+        map.insert(key.id(), target);
+    }
+    *app.state::<Hotkeys>().0.lock().unwrap() = map;
+    Ok(())
 }
 
 #[tauri::command]
@@ -173,30 +224,50 @@ fn cancel_job(jobs: State<'_, Arc<jobs::Jobs>>, id: u64) {
     jobs.cancel(id);
 }
 
+#[tauri::command]
+fn cancel_batch(jobs: State<'_, Arc<jobs::Jobs>>, batch: u64) {
+    jobs.cancel_batch(batch);
+}
+
+/// Deletes what a batch produced; returns how many results were removed.
+#[tauri::command]
+fn undo_batch(jobs: State<'_, Arc<jobs::Jobs>>, batch: u64) -> usize {
+    jobs.undo(batch)
+}
+
+#[tauri::command]
+fn copy_batch(jobs: State<'_, Arc<jobs::Jobs>>, batch: u64) -> Result<(), String> {
+    jobs.copy(batch)
+}
+
 #[cfg(desktop)]
 fn setup_desktop(app: &mut tauri::App) -> tauri::Result<()> {
-    use std::str::FromStr;
-    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+    use tauri_plugin_global_shortcut::ShortcutState;
 
-    // Only the menu hotkey is ever registered, so any press opens the menu.
     app.handle().plugin(
         tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(move |app, _shortcut, event| {
+            .with_handler(move |app, shortcut, event| {
                 if event.state() == ShortcutState::Pressed {
+                    let target = app.state::<Hotkeys>().0.lock().unwrap().get(&shortcut.id()).cloned();
                     // Reading the selection spawns a process; keep it off the event loop.
                     let app = app.clone();
-                    std::thread::spawn(move || open_menu(&app));
+                    std::thread::spawn(move || match target.as_deref() {
+                        Some(action) if !action.is_empty() => run_hotkey(&app, action),
+                        _ => open_menu(&app),
+                    });
                 }
             })
             .build(),
     )?;
-    let hotkey = app.state::<settings::Store>().get(app.handle()).hotkey;
-    let shortcut = Shortcut::from_str(&hotkey)
-        .or_else(|_| Shortcut::from_str(settings::DEFAULT_HOTKEY))
-        .expect("default hotkey parses");
-    if let Err(e) = app.global_shortcut().register(shortcut) {
-        // Another program may own the combination; the tray still works.
+    let saved = app.state::<settings::Store>().get(app.handle());
+    if let Err(e) = register_hotkeys(app.handle(), &saved) {
+        // Another program may own a combination: keep at least the menu.
         eprintln!("hotkey registration failed: {e}");
+        let menu_only = settings::Settings { hotkeys: Default::default(), ..saved };
+        if register_hotkeys(app.handle(), &menu_only).is_err() {
+            let fallback = settings::Settings { hotkey: settings::DEFAULT_HOTKEY.into(), ..menu_only };
+            let _ = register_hotkeys(app.handle(), &fallback);
+        }
     }
 
     let open = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
@@ -229,9 +300,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(Arc::new(jobs::Jobs::default()))
         .manage(settings::Store::default())
+        .manage(Hotkeys::default())
         .invoke_handler(tauri::generate_handler![
             run_action,
             cancel_job,
+            cancel_batch,
+            undo_batch,
+            copy_batch,
             get_settings,
             save_settings,
             list_engines,

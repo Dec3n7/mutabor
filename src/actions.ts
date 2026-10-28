@@ -12,6 +12,8 @@ export interface FileInfo {
 
 export interface Action {
   id: string;
+  /** Shown instead of the translated id (the user's own actions). */
+  label?: string;
   /** Output extension; the action is hidden when the input already has it. */
   target?: string;
   /** Extra search words besides the label. */
@@ -28,10 +30,25 @@ export interface Action {
   glyph?: string;
   /** Planned but not implemented yet; kept in the catalog, hidden from the menu. */
   soon?: boolean;
+  /** Only offered for a picture taken from the clipboard. */
+  clipboard?: boolean;
 }
 
 /** Submenu fields; values mirror `recipes::Options` on the Rust side. */
-export type Field = "quality" | "height" | "width" | "fps" | "start" | "end" | "side" | "ratio" | "page" | "dpi";
+export type Field =
+  | "quality"
+  | "height"
+  | "width"
+  | "fps"
+  | "start"
+  | "end"
+  | "at"
+  | "side"
+  | "ratio"
+  | "page"
+  | "dpi"
+  | "mb"
+  | "speed";
 export type Quality = "high" | "normal" | "small";
 export interface Options {
   quality?: Quality;
@@ -45,10 +62,15 @@ export interface Options {
   ratio?: [number, number];
   page?: "a4" | "original";
   dpi?: number;
+  /** Size limit in megabytes. */
+  mb?: number;
+  speed?: number;
+  /** Moment for a still frame, in seconds. */
+  at?: number;
 }
 
 /** Fields typed as text (a time) rather than picked from chips. */
-export const TIME_FIELDS: Field[] = ["start", "end"];
+export const TIME_FIELDS: Field[] = ["start", "end", "at"];
 
 /** Choices per field, in display order. A size of 0 keeps the original. */
 export const CHOICES: Partial<Record<Field, (string | number)[]>> = {
@@ -60,6 +82,8 @@ export const CHOICES: Partial<Record<Field, (string | number)[]>> = {
   ratio: ["1:1", "4:3", "3:2", "16:9", "9:16", "4:5"],
   page: ["a4", "original"],
   dpi: [72, 150, 300],
+  mb: [8, 10, 16, 25, 50, 100, 500],
+  speed: [0.25, 0.5, 1.5, 2, 4],
 };
 
 /** Choices for a field of this action; resizing has no "original" size. */
@@ -118,7 +142,7 @@ export const QUICK: Partial<Record<Kind, Action[]>> = {
 
 export const ACTIONS: Record<Kind, Action[]> = {
   video: [
-    convert("gif", "анимация animation", ["width", "fps"]),
+    convert("gif", "анимация animation", ["start", "end", "width", "fps"]),
     { id: "extract_mp3", keywords: "mp3 audio звук", options: QUALITY },
     convert("mp4", "", VIDEO),
     convert("webm", "", VIDEO),
@@ -127,8 +151,14 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "compress", keywords: "сжать size", options: VIDEO },
     { id: "trim", keywords: "обрезать cut время", options: [...TRIM, "quality"], ask: true },
     { id: "resize", keywords: "размер 1080 720", options: ["height", "quality"] },
+    { id: "fit_size", keywords: "сжать размер мб mb лимит limit whatsapp почта email", options: ["mb"] },
     { id: "preset_telegram", keywords: "telegram телеграм" },
     { id: "preset_discord", keywords: "discord дискорд" },
+    { id: "mute", keywords: "без звука звук убрать silent" },
+    { id: "speed", keywords: "скорость ускорить замедлить fast slow", options: ["speed", "quality"] },
+    { id: "frame", keywords: "кадр скриншот png снимок screenshot", options: ["at"], ask: true },
+    { id: "ringtone", keywords: "рингтон звонок iphone m4r", options: ["start"] },
+    { id: "voice", keywords: "голосовое telegram телеграм ogg" },
   ],
   audio: [
     convert("mp3", "", QUALITY),
@@ -138,9 +168,14 @@ export const ACTIONS: Record<Kind, Action[]> = {
     convert("m4a", "", QUALITY),
     convert("opus", "", QUALITY),
     { id: "trim", keywords: "обрезать cut время", options: TRIM, ask: true },
+    { id: "fit_size", keywords: "сжать размер мб mb лимит limit", options: ["mb"] },
     { id: "normalize", keywords: "громкость loudness" },
+    { id: "speed", keywords: "скорость ускорить замедлить fast slow", options: ["speed"] },
+    { id: "ringtone", keywords: "рингтон звонок iphone m4r", options: ["start"] },
+    { id: "voice", keywords: "голосовое telegram телеграм" },
   ],
   image: [
+    { id: "save", keywords: "сохранить png save", clipboard: true },
     convert("jpg", "jpeg", QUALITY),
     convert("png"),
     convert("webp", "", QUALITY),
@@ -197,20 +232,56 @@ export function notSupportedYet(files: FileInfo[], engines: EngineInfo[] = []): 
   return files.some((f) => UNREADABLE.has(f.ext) || !ACTIONS[f.kind].some(usable));
 }
 
-/** Actions valid for every selected file, in catalog order. Actions whose
- * engine has no build for this system are left out. */
-export function actionsFor(files: FileInfo[], engines: EngineInfo[] = []): Action[] {
+/** Mirror of `settings::CustomAction`: the user's own chain of steps. */
+export interface CustomAction {
+  id: string;
+  name: string;
+  kind: Kind;
+  steps: ({ action: string; options?: Options } | { ffmpeg: string; ext: string })[];
+}
+
+/** Actions valid for every selected file, in catalog order, then the user's
+ * own ones. Actions whose engine has no build for this system are left out. */
+export function actionsFor(
+  files: FileInfo[],
+  engines: EngineInfo[] = [],
+  custom: CustomAction[] = [],
+  fromClipboard = false,
+): Action[] {
   if (files.length === 0 || notSupportedYet(files, engines)) return [];
   const kinds = new Set(files.map((f) => f.kind));
   const [first, ...rest] = [...kinds];
   const common = ACTIONS[first].filter((a) => rest.every((k) => ACTIONS[k].some((b) => b.id === a.id)));
-  return common.filter(
-    (a) =>
-      !a.soon &&
-      engines.find((e) => e.name === a.engine)?.available !== false &&
-      (!a.multi || files.length > 1) &&
-      (!a.target || files.some((f) => ext(f) !== a.target)),
-  );
+  const own: Action[] =
+    kinds.size === 1
+      ? custom.filter((c) => c.kind === first && c.steps.length > 0).map((c) => ({ id: `custom:${c.id}`, label: c.name }))
+      : [];
+  return [
+    ...common.filter(
+      (a) =>
+        !a.soon &&
+        (!a.clipboard || fromClipboard) &&
+        engines.find((e) => e.name === a.engine)?.available !== false &&
+        (!a.multi || files.length > 1) &&
+        (!a.target || files.some((f) => ext(f) !== a.target)),
+    ),
+    ...own,
+  ];
+}
+
+/** Every built-in action once, for the settings (hotkeys, chain steps). */
+export function catalog(kind?: Kind): Action[] {
+  const kinds = kind ? [kind] : (Object.keys(ACTIONS) as Kind[]);
+  const seen = new Set<string>();
+  const out: Action[] = [];
+  for (const k of kinds) {
+    for (const a of [...(QUICK[k] ?? []), ...ACTIONS[k]]) {
+      if (a.soon || a.clipboard || a.multi || seen.has(a.id)) continue;
+      seen.add(a.id);
+      out.push(a);
+    }
+  }
+  return out;
 }
 
 export function quickFor(files: FileInfo[]): Action[] {
@@ -222,8 +293,9 @@ export function quickFor(files: FileInfo[]): Action[] {
 const MB = 1024 * 1024;
 
 /** The action most likely wanted for this selection, if any. */
-export function suggest(files: FileInfo[]): string | undefined {
+export function suggest(files: FileInfo[], fromClipboard = false): string | undefined {
   if (files.length === 0) return;
+  if (fromClipboard && files.length === 1 && files[0].kind === "image") return "save";
   const all = (p: (f: FileInfo) => boolean) => files.every(p);
   if (all((f) => f.ext === "heic" || f.ext === "heif")) return "to_jpg";
   if (all((f) => f.ext === "ogg" || f.ext === "oga" || f.ext === "opus")) return "to_mp3";
@@ -242,6 +314,8 @@ export function defaultOptions(a: Action, files: FileInfo[], quality: Quality): 
     if (f === "page") o.page = "a4";
     if (f === "width") o.width = 480;
     if (f === "fps") o.fps = 12;
+    if (f === "mb") o.mb = 25;
+    if (f === "speed") o.speed = 2;
   }
   return o;
 }

@@ -538,3 +538,116 @@ select.field option {
 .engine .info {
   margin-top: 2px;
 }
+
+/* Settings: queue steppers, hotkey rows, custom action editor */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px 12px;
+  max-width: 320px;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stepbtn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.stepbtn:hover {
+  background: var(--hover);
+}
+
+.count {
+  min-width: 22px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.field.small {
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.field.code,
+.code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.field.ext {
+  width: 70px;
+  min-width: 0;
+}
+
+textarea.field {
+  width: 100%;
+  resize: vertical;
+  cursor: text;
+}
+
+input.field {
+  cursor: text;
+}
+
+#editor {
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+#editor > .line {
+  margin: 6px 0;
+  flex-wrap: wrap;
+}
+
+.step-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#editor > div.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.step-options .chips {
+  padding: 0;
+}
+
+.primary.small {
+  display: inline-block;
+  width: auto;
+  margin: 0;
+  padding: 6px 14px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}

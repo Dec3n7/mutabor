@@ -21,7 +21,7 @@ import {
   suggest,
 } from "./actions";
 import { formatSize, setLanguage, t } from "./i18n";
-import { DEFAULT_SETTINGS, Settings } from "./prefs";
+import { DEFAULT_SETTINGS, Settings, showHotkey } from "./prefs";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -36,14 +36,20 @@ const gear = $<HTMLButtonElement>("#gear");
 let files: FileInfo[] = [];
 let settings: Settings = DEFAULT_SETTINGS;
 let engines: EngineInfo[] = [];
+/** Where the files came from: "selection", "clipboard_files", "clipboard_image". */
+let source = "selection";
 let visible: Action[] = [];
 let selected = 0;
 
 /** The options submenu, when open: its action, choices and focused field. */
 let config: { action: Action; opts: Options; field: number } | null = null;
 
+/** Menu text of an action: the user's own name, or the translation. */
+const label = (a: Action) => a.label ?? t(a.id);
+const fromClipboard = () => source === "clipboard_image";
+
 function matches(a: Action, query: string): boolean {
-  const hay = `${t(a.id)} ${a.keywords ?? ""}`.toLowerCase();
+  const hay = `${label(a)} ${a.keywords ?? ""}`.toLowerCase();
   return query.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
 }
 
@@ -61,20 +67,25 @@ function renderHeader() {
     return;
   }
   const total = files.reduce((s, f) => s + f.size, 0);
-  const title = files.length === 1 ? files[0].name : t("files_n", { n: files.length });
-  header.append(el("div", "title", title), el("div", "meta", formatSize(total)));
+  const title = fromClipboard()
+    ? t("clipboard_image")
+    : files.length === 1
+      ? files[0].name
+      : t("files_n", { n: files.length });
+  const meta = formatSize(total) + (source.startsWith("clipboard") ? ` · ${t("from_clipboard")}` : "");
+  header.append(el("div", "title", title), el("div", "meta", meta));
 }
 
 function renderList() {
   const query = search.value.trim();
-  const all = actionsFor(files, engines);
-  const hint = query ? undefined : suggest(files);
+  const all = actionsFor(files, engines, settings.custom, fromClipboard());
+  const hint = query ? undefined : suggest(files, fromClipboard());
 
   quick.replaceChildren();
   if (!query) {
     for (const a of quickFor(files)) {
-      const b = el("button", "quick", a.glyph ?? t(a.id));
-      b.title = t(a.id);
+      const b = el("button", "quick", a.glyph ?? label(a));
+      b.title = label(a);
       b.onclick = () => run(a);
       quick.append(b);
     }
@@ -82,8 +93,9 @@ function renderList() {
 
   const filtered = all.filter((a) => !query || matches(a, query));
   const top = hint ? filtered.filter((a) => a.id === hint) : [];
-  const rest = filtered.filter((a) => a.id !== hint);
-  visible = [...top, ...rest];
+  const own = filtered.filter((a) => a.id.startsWith("custom:") && a.id !== hint);
+  const rest = filtered.filter((a) => a.id !== hint && !a.id.startsWith("custom:"));
+  visible = [...top, ...own, ...rest];
   selected = Math.min(selected, Math.max(visible.length - 1, 0));
 
   list.replaceChildren();
@@ -99,8 +111,10 @@ function renderList() {
       const idx = i++;
       const missing = missingEngine(a, engines);
       const row = el("div", "row" + (idx === selected ? " active" : "") + (missing ? " locked" : ""));
-      row.append(el("span", "label", t(a.id)));
+      row.append(el("span", "label", label(a)));
       const side = el("span", "side");
+      const hotkey = settings.hotkeys?.[a.id];
+      if (hotkey) side.append(el("span", "badge", showHotkey(hotkey)));
       if (missing) {
         const badge = el("span", "badge", `⤓ ${formatSize(missing.size)}`);
         badge.title = t("needs_engine", { engine: missing.title });
@@ -109,7 +123,7 @@ function renderList() {
       side.append(el("span", "key", idx < 9 ? String(idx + 1) : ""));
       if (a.options?.length) {
         const more = el("button", "more", "›");
-        more.title = t("options_of", { name: t(a.id) });
+        more.title = t("options_of", { name: label(a) });
         more.onclick = (e) => {
           e.stopPropagation();
           openConfig(a);
@@ -123,6 +137,7 @@ function renderList() {
     }
   };
   section("suggested", top);
+  section("my_actions", own);
   section("all_actions", rest);
 }
 
@@ -143,6 +158,8 @@ function choiceLabel(field: Field, v: string | number): string {
   if (v === 0) return t("original");
   if (field === "height") return v === 2160 ? "4K" : v === 1440 ? "2K" : `${v}p`;
   if (field === "width" || field === "side") return `${v} px`;
+  if (field === "mb") return t("mb_n", { n: v });
+  if (field === "speed") return `×${v}`;
   return String(v);
 }
 
@@ -178,7 +195,7 @@ function renderConfig() {
   if (!config) return;
   const { action, opts, field } = config;
   list.replaceChildren();
-  const back = el("button", "back", `‹ ${t("options_of", { name: t(action.id) })}`);
+  const back = el("button", "back", `‹ ${t("options_of", { name: label(action) })}`);
   back.onclick = closeConfig;
   list.append(back);
   action.options!.forEach((f, i) => {
@@ -187,13 +204,13 @@ function renderConfig() {
     if (TIME_FIELDS.includes(f)) {
       const input = document.createElement("input");
       input.className = "time";
-      input.placeholder = f === "start" ? "0:00" : t("to_end");
-      const v = opts[f as "start" | "end"];
+      input.placeholder = f === "end" ? t("to_end") : "0:00";
+      const v = opts[f as "start" | "end" | "at"];
       input.value = v === undefined ? "" : formatTime(v);
       input.oninput = () => {
         const secs = parseTime(input.value);
         input.classList.toggle("bad", Number.isNaN(secs));
-        opts[f as "start" | "end"] = secs;
+        opts[f as "start" | "end" | "at"] = secs;
       };
       input.onfocus = () => focusField(i);
       group.append(input);
@@ -231,8 +248,8 @@ function step(dir: number) {
 
 function runConfig() {
   if (!config) return;
-  const { start, end } = config.opts;
-  if (Number.isNaN(start) || Number.isNaN(end)) {
+  const { start, end, at } = config.opts;
+  if ([start, end, at].some((v) => Number.isNaN(v))) {
     status.textContent = t("bad_time");
     return;
   }
@@ -247,10 +264,15 @@ async function run(a: Action, options?: Options) {
     await invoke("run_action", { action: a.id, paths: files.map((f) => f.path), options: options ?? null });
     await hide();
   } catch (err) {
-    const code = String(err);
-    status.textContent =
-      ["not_ready", "no_duration", "no_audio", "bad_range"].includes(code) ? t(code) : t("start_failed", { msg: code });
+    status.textContent = errorText(String(err));
   }
+}
+
+/** Readable text for an error code from the Rust side. */
+function errorText(code: string): string {
+  if (code.startsWith("engine_missing:")) return t("engine_missing", { engine: code.split(":")[1] });
+  const known = ["not_ready", "no_duration", "no_audio", "bad_range", "nothing_selected", "folder_not_last"];
+  return known.includes(code) ? t(code) : t("start_failed", { msg: code });
 }
 
 /** The download offer shown in place of the list; Enter accepts, Esc goes back. */
@@ -264,7 +286,7 @@ function offerEngine(a: Action, engine: EngineInfo, options?: Options) {
   const box = el("div", "offer");
   box.append(
     el("div", "offer-title", t("engine_title", { engine: engine.title })),
-    el("p", "", t("engine_text", { action: t(a.id), engine: `${engine.title} ${engine.version}`, size: formatSize(engine.size) })),
+    el("p", "", t("engine_text", { action: label(a), engine: `${engine.title} ${engine.version}`, size: formatSize(engine.size) })),
     el("p", "note", t("engine_note", { license: engine.license })),
   );
   const go = el("button", "primary", `${t("engine_download")}  ↵`);
@@ -295,8 +317,9 @@ async function hide() {
   if (inTauri) await getCurrentWindow().hide();
 }
 
-function open(next: FileInfo[], prefs: Settings, engineList: EngineInfo[]) {
+function open(next: FileInfo[], prefs: Settings, engineList: EngineInfo[], from = "selection") {
   files = next;
+  source = from;
   settings = prefs;
   engines = engineList;
   offer = null;
@@ -370,8 +393,8 @@ document.addEventListener("keydown", (e) => {
 });
 
 if (inTauri) {
-  listen<{ files: FileInfo[]; settings: Settings; engines: EngineInfo[] }>("menu:open", (e) =>
-    open(e.payload.files, e.payload.settings, e.payload.engines),
+  listen<{ files: FileInfo[]; source: string; settings: Settings; engines: EngineInfo[] }>("menu:open", (e) =>
+    open(e.payload.files, e.payload.settings, e.payload.engines, e.payload.source),
   );
 } else {
   // Plain browser (npm run dev): sample data for working on the layout.
@@ -391,7 +414,17 @@ if (inTauri) {
     { name: "pandoc", title: "Pandoc", version: "3.13", license: "GPL-2.0-or-later", purpose: "", size: 42_983_200, available: true, installed: true },
   ];
   const params = new URLSearchParams(location.search);
-  open(demo[params.get("demo") ?? "video"] ?? [], DEFAULT_SETTINGS, demoEngines);
+  const demoSettings: Settings = {
+    ...DEFAULT_SETTINGS,
+    hotkeys: { preset_discord: "Control+Alt+KeyD" },
+    custom: [
+      { id: "d1", name: "Discord без звука", kind: "video", steps: [{ action: "mute" }, { action: "preset_discord" }] },
+    ],
+  };
+  const name = params.get("demo") ?? "video";
+  const clip = name === "clipboard";
+  const shot = { path: "/tmp/clipboard-1.png", name: "clipboard-1.png", ext: "png", kind: "image" as const, size: 420_000 };
+  open(clip ? [shot] : (demo[name] ?? []), demoSettings, demoEngines, clip ? "clipboard_image" : "selection");
   const opts = visible.find((a) => a.id === params.get("options"));
   if (opts) openConfig(opts);
 }

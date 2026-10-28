@@ -43,9 +43,9 @@
         "label": "settings",
         "title": "Mutabor",
         "url": "settings.html",
-        "width": 460,
-        "height": 560,
-        "minWidth": 400,
+        "width": 520,
+        "height": 720,
+        "minWidth": 440,
         "minHeight": 420,
         "visible": false,
         "center": true

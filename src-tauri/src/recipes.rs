@@ -45,13 +45,20 @@ pub struct Options {
     pub page: Option<Page>,
     /// Resolution for PDF pages rendered as pictures.
     pub dpi: Option<u32>,
+    /// Size limit for "compress to N MB", in megabytes.
+    pub mb: Option<u32>,
+    /// Playback speed factor.
+    pub speed: Option<f32>,
+    /// Moment in seconds (a still frame).
+    pub at: Option<f64>,
 }
 
 impl Options {
-    /// The part worth remembering for next time: a trim range belongs to one file.
+    /// The part worth remembering for next time: times belong to one file.
     pub fn reusable(mut self) -> Self {
         self.start = None;
         self.end = None;
+        self.at = None;
         self
     }
 }
@@ -169,8 +176,48 @@ fn fit_height(h: u32) -> String {
         format!("scale=-2:'min({h},trunc(ih/2)*2)'")
     }
 }
-const DISCORD_LIMIT_BYTES: f64 = 10.0 * 1024.0 * 1024.0;
+const DISCORD_MB: u32 = 10;
 const DISCORD_AUDIO_KBPS: f64 = 96.0;
+const MB: f64 = 1024.0 * 1024.0;
+
+/// Total bitrate in kbit/s that keeps `secs` of media under `mb` megabytes,
+/// with 8% headroom for container overhead and rate-control overshoot.
+fn budget_kbps(mb: u32, secs: f64) -> f64 {
+    mb as f64 * MB * 8.0 / 1000.0 * 0.92 / secs
+}
+
+/// atempo takes 0.5-2.0, so larger changes are chained.
+fn atempo(mut speed: f64) -> String {
+    let mut parts = Vec::new();
+    while speed > 2.0 {
+        parts.push("atempo=2".to_string());
+        speed /= 2.0;
+    }
+    while speed < 0.5 {
+        parts.push("atempo=0.5".to_string());
+        speed /= 0.5;
+    }
+    parts.push(format!("atempo={speed:.4}"));
+    parts.join(",")
+}
+
+/// Containers that take H.264 as is; others are re-wrapped as MP4.
+fn h264_ext(input_ext: &str) -> &str {
+    if matches!(input_ext, "mp4" | "mov" | "mkv" | "m4v") { input_ext } else { "mp4" }
+}
+
+/// `[start, end)` as fast-seek input args, `-t` and the resulting length.
+fn segment(opts: &Options, duration: Option<f64>) -> (Vec<String>, Vec<String>, Option<f64>) {
+    let start = opts.start.unwrap_or(0.0).max(0.0);
+    let end = opts.end.or(duration).filter(|e| *e > start);
+    let len = end.map(|e| e - start);
+    let input = if start > 0.0 { vec!["-ss".into(), secs(start)] } else { vec![] };
+    let t = match (opts.end, len) {
+        (Some(_), Some(l)) => vec!["-t".into(), secs(l)],
+        _ => vec![],
+    };
+    (input, t, len)
+}
 
 fn args(list: &[&str]) -> Vec<String> {
     list.iter().map(|s| s.to_string()).collect()
@@ -209,8 +256,7 @@ fn trim_plan(input_ext: &str, probe: Probe, opts: &Options, q: Quality) -> Resul
     }
     let length = end.map(|e| e - start);
     let (ext, mut a) = if is_video(input_ext) {
-        let ext = if matches!(input_ext, "mp4" | "mov" | "mkv" | "m4v") { input_ext } else { "mp4" };
-        (ext, h264_at(q, 0))
+        (h264_ext(input_ext), h264_at(q, 0))
     } else {
         // Same container; ffmpeg picks its default encoder (LAME, Vorbis, FLAC…).
         (input_ext, args(&["-vn"]))
@@ -230,7 +276,7 @@ fn trim_plan(input_ext: &str, probe: Probe, opts: &Options, q: Quality) -> Resul
 
 /// Actions that only make sense when there is sound to work with.
 const NEEDS_AUDIO: &[&str] = &[
-    "extract_mp3", "to_mp3", "to_ogg", "to_wav", "to_flac", "to_m4a", "to_opus", "normalize",
+    "extract_mp3", "to_mp3", "to_ogg", "to_wav", "to_flac", "to_m4a", "to_opus", "normalize", "ringtone", "voice",
 ];
 
 /// The quality an action uses when the user picked none: compressing aims
@@ -268,11 +314,99 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
     }
     let duration = probe.duration;
     let height = opts.height.unwrap_or(0);
+    let video = is_video(input_ext);
     match action {
         // Video
         "to_gif" => {
             let filter = gif_filter(opts.width.unwrap_or(480), opts.fps.unwrap_or(12).clamp(1, 50));
-            plan_of("gif", "", vec!["-vf".into(), filter, "-loop".into(), "0".into()])
+            let (input_args, t, len) = segment(opts, duration);
+            let mut a = vec!["-vf".into(), filter, "-loop".into(), "0".into()];
+            a.extend(t);
+            Ok(Plan { ext: "gif".into(), input_args, args: a, expected: len, ..Default::default() })
+        }
+        "mute" => plan_of(input_ext, "_muted", args(&["-map", "0", "-map", "-0:a", "-c", "copy"])),
+        "frame" => {
+            let at = opts.at.unwrap_or(0.0).max(0.0);
+            if duration.is_some_and(|d| at >= d) {
+                return Err(PlanError::BadRange);
+            }
+            Ok(Plan {
+                ext: "png".into(),
+                suffix: "_frame".into(),
+                input_args: vec!["-ss".into(), secs(at)],
+                args: args(&["-frames:v", "1", "-update", "1"]),
+                ..Default::default()
+            })
+        }
+        "speed" => {
+            let s = f64::from(opts.speed.unwrap_or(2.0)).clamp(0.25, 4.0);
+            let mut p = if video {
+                let filter = format!("setpts=PTS/{s},{}", fit_height(0));
+                let mut a = h264(q.pick("18", "22", "28"), &filter, "160k");
+                a.extend(["-af".into(), atempo(s)]);
+                Plan { ext: h264_ext(input_ext).into(), args: a, ..Default::default() }
+            } else {
+                Plan { ext: input_ext.into(), args: vec!["-vn".into(), "-af".into(), atempo(s)], ..Default::default() }
+            };
+            p.suffix = format!("_x{s}");
+            p.expected = duration.map(|d| d / s);
+            Ok(p)
+        }
+        // A 30-second AAC clip in an M4R container: an iPhone ringtone.
+        "ringtone" => {
+            let start = opts.start.unwrap_or(0.0).max(0.0);
+            Ok(Plan {
+                ext: "m4r".into(),
+                input_args: vec!["-ss".into(), secs(start)],
+                args: args(&["-vn", "-t", "30", "-c:a", "aac", "-b:a", "192k", "-f", "ipod"]),
+                expected: Some(duration.map_or(30.0, |d| (d - start).clamp(0.1, 30.0))),
+                ..Default::default()
+            })
+        }
+        // The format Telegram records voice messages in: mono Opus in OGG.
+        "voice" => plan_of(
+            "ogg",
+            "_voice",
+            args(&["-vn", "-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "64k", "-application", "voip"]),
+        ),
+        "fit_size" | "preset_discord" => {
+            let secs = duration.filter(|d| *d > 0.0).ok_or(PlanError::NeedsDuration)?;
+            let discord = action == "preset_discord";
+            let mb = if discord { DISCORD_MB } else { opts.mb.unwrap_or(25).max(1) };
+            let total = budget_kbps(mb, secs);
+            let suffix = if discord { "_discord".to_string() } else { format!("_{mb}mb") };
+            if !video {
+                let kbps = total.clamp(32.0, 320.0).round();
+                return plan_of("mp3", suffix, args(&["-vn", "-c:a", "libmp3lame", "-b:a", &format!("{kbps}k")]));
+            }
+            let audio = if !probe.has_audio {
+                0.0
+            } else if total < 400.0 {
+                64.0
+            } else {
+                DISCORD_AUDIO_KBPS
+            };
+            let v = (total - audio).max(50.0).round();
+            // Fewer pixels look better than blocky ones at a low bitrate.
+            let h = if v < 600.0 {
+                480
+            } else if v < 1500.0 || discord {
+                720
+            } else {
+                1080
+            };
+            let mut a = args(&[
+                "-map", "0:v:0", "-map", "0:a:0?",
+                "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", &format!("{}k", audio.max(32.0)), "-movflags", "+faststart",
+            ]);
+            a.extend([
+                "-vf".into(), fit_height(h),
+                "-b:v".into(), format!("{v}k"),
+                "-maxrate".into(), format!("{v}k"),
+                "-bufsize".into(), format!("{}k", v * 2.0),
+            ]);
+            plan_of("mp4", suffix, a)
         }
         "extract_mp3" => plan_of("mp3", "", mp3(q)),
         "to_mp4" => plan_of("mp4", "", h264_at(q, height)),
@@ -298,24 +432,6 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
             plan_of("mp4", format!("_{h}p"), h264_at(q, h))
         }
         "preset_telegram" => plan_of("mp4", "_telegram", h264("23", &fit_height(1080), "160k")),
-        "preset_discord" => {
-            let secs = duration.filter(|d| *d > 0.0).ok_or(PlanError::NeedsDuration)?;
-            // 8% headroom for container overhead and rate-control overshoot.
-            let total_kbps = DISCORD_LIMIT_BYTES * 8.0 / 1000.0 * 0.92 / secs;
-            let video = (total_kbps - DISCORD_AUDIO_KBPS).max(100.0).round();
-            let mut a = args(&[
-                "-map", "0:v:0", "-map", "0:a:0?",
-                "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
-            ]);
-            a.extend([
-                "-vf".into(), fit_height(720),
-                "-b:v".into(), format!("{video}k"),
-                "-maxrate".into(), format!("{video}k"),
-                "-bufsize".into(), format!("{}k", video * 2.0),
-            ]);
-            plan_of("mp4", "_discord", a)
-        }
 
         // Audio. `-vn` drops cover art, which several containers reject.
         "to_mp3" => plan_of("mp3", "", mp3(q)),
@@ -414,6 +530,8 @@ fn image_plan(action: &str, input_ext: &str, quality: Quality, opts: &Options) -
         "to_webp" => ("webp", "", None),
         "to_avif" => ("avif", "", None),
         "to_ico" => ("ico", "", None),
+        // A picture pasted from the clipboard, kept as a file in Pictures.
+        "save" => ("png", "", None),
         "rotate_left" => (same, "_rotated", Some("transpose=2".into())),
         "rotate_right" => (same, "_rotated", Some("transpose=1".into())),
         "flip_h" => (same, "_flipped", Some("hflip".into())),
@@ -568,7 +686,14 @@ mod tests {
         let i = p.args.iter().position(|a| a == "-b:v").unwrap();
         let kbps: f64 = p.args[i + 1].trim_end_matches('k').parse().unwrap();
         let bytes = (kbps + DISCORD_AUDIO_KBPS) * 1000.0 / 8.0 * 60.0;
-        assert!(bytes < DISCORD_LIMIT_BYTES);
+        assert!(bytes < DISCORD_MB as f64 * MB);
+        // Any limit: 25 MB for a 10-minute video still fits, at a lower resolution.
+        let opts = Options { mb: Some(25), ..Default::default() };
+        let p = plan("fit_size", "mp4", probe(600.0), &opts).unwrap();
+        assert_eq!(p.suffix, "_25mb");
+        assert!(p.args.iter().any(|a| a.contains("min(480,")));
+        assert_eq!(atempo(4.0), "atempo=2,atempo=2.0000");
+        assert_eq!(atempo(0.25), "atempo=0.5,atempo=0.5000");
         let unknown = Probe { duration: None, has_audio: true };
         assert_eq!(plan("preset_discord", "mp4", unknown, &Options::default()), Err(PlanError::NeedsDuration));
     }
@@ -613,9 +738,10 @@ mod tests {
                              "flip_h", "flip_v", "compress", "strip_meta", "resize", "crop", "to_pdf"];
         let cases = [
             (&video, "mp4", ["to_gif", "extract_mp3", "to_mp4", "to_mov", "to_webm", "to_mkv", "compress",
-                             "preset_telegram", "preset_discord", "resize", "trim"].as_slice()),
-            (&audio, "ogg", ["to_mp3", "to_ogg", "to_wav", "to_flac", "to_m4a", "to_opus", "normalize", "trim"]
-                .as_slice()),
+                             "preset_telegram", "preset_discord", "resize", "trim", "fit_size", "mute", "frame",
+                             "speed", "ringtone", "voice"].as_slice()),
+            (&audio, "ogg", ["to_mp3", "to_ogg", "to_wav", "to_flac", "to_m4a", "to_opus", "normalize", "trim",
+                             "fit_size", "speed", "ringtone", "voice"].as_slice()),
             (&png, "png", image_actions.as_slice()),
             (&jpg, "jpg", image_actions.as_slice()),
             (&gif, "gif", image_actions.as_slice()),
@@ -623,7 +749,8 @@ mod tests {
         for (input, ext, actions) in cases {
             for action in actions {
                 let opts = Options { start: Some(1.0), end: Some(2.5), side: Some(32), ratio: Some([16, 9]),
-                                     height: Some(240), ..Default::default() };
+                                     height: Some(240), mb: Some(1), at: Some(1.0), speed: Some(2.0),
+                                     ..Default::default() };
                 let p = plan(action, ext, probe(3.0), &opts).unwrap();
                 let stem = input.file_stem().unwrap().to_string_lossy();
                 let out = dir.join(format!("{stem}_{action}{}.{}", p.suffix, p.ext));

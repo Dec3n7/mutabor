@@ -1,42 +1,68 @@
 //! Runs conversions as child processes (ffmpeg, MuPDF, Pandoc) and engine
 //! downloads, and reports their progress to the toast window through events.
+//!
+//! One menu choice is a batch: one job per selected file (merging is a
+//! single job). Jobs wait in a queue so that only a few files of each kind
+//! are converted at once (`settings.parallel`).
 
-use crate::recipes::{self, Options, PlanError, Plan, Post, Probe, Tool};
+use crate::files::Kind;
+use crate::recipes::{self, Options, Plan, PlanError, Post, Probe, Tool};
+use crate::settings::{CustomAction, Settings, Step as ChainStep};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
 pub const TOAST: &str = "toast";
 
-#[derive(Default)]
 struct Running {
+    batch: u64,
     /// The process of the current step, if one is running.
     child: Option<Child>,
     cancelled: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
+struct Batch {
+    left: usize,
+    outputs: Vec<PathBuf>,
+    copy: bool,
+}
+
+#[derive(Default)]
 pub struct Jobs {
     next_id: AtomicU64,
     running: Mutex<HashMap<u64, Running>>,
+    batches: Mutex<HashMap<u64, Batch>>,
+    /// Jobs running per file kind, for the queue.
+    busy: Mutex<HashMap<Kind, usize>>,
+    freed: Condvar,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 enum Event {
-    /// `steady`: no percentages will follow, show a busy bar.
-    Started { id: u64, name: String, steady: bool },
+    /// A new batch of `total` jobs for `action` (an action id or "custom:<id>").
+    Batch { batch: u64, action: String, total: usize },
+    /// A job joined the queue. `steady`: no percentages will follow.
+    Started { id: u64, batch: u64, name: String, steady: bool },
+    /// The job left the queue and is running.
+    Running { id: u64 },
     Progress { id: u64, percent: u8 },
     Done { id: u64, output: String, before: u64, after: u64 },
     /// An engine finished downloading.
     Installed { id: u64 },
     Failed { id: u64, message: String },
     Cancelled { id: u64 },
+    /// Every job of the batch ended; `copied`: results are on the clipboard.
+    Finished { batch: u64, copied: bool },
+    /// A message without a job, e.g. a hotkey pressed with nothing selected.
+    Notice { message: String },
 }
 
 /// Sidecars are copied next to the main executable by the Tauri bundler.
@@ -66,8 +92,12 @@ fn ffmpeg() -> Command {
 /// `video.mp4` + ("_compressed", "mp4") -> `video_compressed.mp4`, or
 /// `video_compressed (1).mp4` when taken. An empty `ext` names a folder.
 /// Never returns the input itself.
+#[cfg(test)]
 fn output_path(input: &Path, suffix: &str, ext: &str) -> PathBuf {
-    let dir = input.parent().unwrap_or(Path::new("."));
+    output_in(input.parent().unwrap_or(Path::new(".")), input, suffix, ext)
+}
+
+fn output_in(dir: &Path, input: &Path, suffix: &str, ext: &str) -> PathBuf {
     let stem = input.file_stem().unwrap_or_default().to_string_lossy();
     let base = format!("{stem}{suffix}");
     let dot = if ext.is_empty() { String::new() } else { format!(".{ext}") };
@@ -80,11 +110,37 @@ fn output_path(input: &Path, suffix: &str, ext: &str) -> PathBuf {
         .expect("unbounded range")
 }
 
+/// Results sit next to the input, except for pictures pasted from the
+/// clipboard: those go to Pictures\Mutabor.
+fn result_dir(app: &AppHandle, input: &Path) -> PathBuf {
+    if crate::clipboard::is_clipboard_image(input) {
+        if let Ok(pictures) = app.path().picture_dir() {
+            let dir = pictures.join("Mutabor");
+            if std::fs::create_dir_all(&dir).is_ok() {
+                return dir;
+            }
+        }
+    }
+    input.parent().unwrap_or(Path::new(".")).to_path_buf()
+}
+
+fn ext_of(p: &Path) -> String {
+    p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default()
+}
+
 fn probe(input: &Path) -> Probe {
     // `ffmpeg -i` without an output exits with an error but prints the banner.
     match ffmpeg().arg("-hide_banner").arg("-i").arg(input).output() {
         Ok(out) => Probe::parse(&String::from_utf8_lossy(&out.stderr)),
         Err(_) => Probe::default(),
+    }
+}
+
+/// Probing runs ffmpeg; only audio and video need it.
+fn probe_if_media(input: &Path) -> Probe {
+    match crate::files::kind_of(&ext_of(input)) {
+        Kind::Video | Kind::Audio => probe(input),
+        _ => Probe::default(),
     }
 }
 
@@ -95,6 +151,14 @@ fn size_of(p: &Path) -> u64 {
             .unwrap_or(0),
         Ok(m) => m.len(),
         Err(_) => 0,
+    }
+}
+
+fn remove(p: &Path) {
+    if p.is_dir() {
+        let _ = std::fs::remove_dir_all(p);
+    } else {
+        let _ = std::fs::remove_file(p);
     }
 }
 
@@ -109,6 +173,12 @@ fn show_toast(app: &AppHandle) {
     let _ = win.show();
 }
 
+/// Shows a one-line message in the toast (`message` is an i18n key or text).
+pub fn notice(app: &AppHandle, message: &str) {
+    let _ = app.emit_to(TOAST, "job", Event::Notice { message: message.into() });
+    show_toast(app);
+}
+
 fn plan_error(e: PlanError) -> String {
     match e {
         PlanError::NotReady => "not_ready",
@@ -117,6 +187,55 @@ fn plan_error(e: PlanError) -> String {
         PlanError::BadRange => "bad_range",
     }
     .into()
+}
+
+fn program_for(app: &AppHandle, tool: Tool) -> Result<PathBuf, String> {
+    match tool.engine() {
+        None => Ok(ffmpeg_path()),
+        Some((engine, program)) => {
+            crate::engines::program(app, engine, program).ok_or_else(|| format!("engine_missing:{engine}"))
+        }
+    }
+}
+
+/// Splits a command line typed by the user: spaces separate arguments,
+/// "double" or 'single' quotes keep spaces inside one.
+fn split_args(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    let mut any = false;
+    for c in line.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => cur.push(c),
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                any = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if any || !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                    any = false;
+                }
+            }
+            (None, c) => cur.push(c),
+        }
+    }
+    if any || !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// "Сжать для Discord" -> "_Сжать-для-Discord": safe in a file name.
+fn slug(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect();
+    let s = s.split('-').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("-");
+    if s.is_empty() { String::new() } else { format!("_{s}") }
 }
 
 /// One process of a job.
@@ -150,114 +269,300 @@ fn pdf_pages(mutool: &Path, pdf: &Path) -> Option<u32> {
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
+/// What one job does.
+enum Work {
+    /// A planned conversion; the plan was checked before queueing.
+    Plan { plan: Plan, program: PathBuf, duration: Option<f64> },
+    /// A user-defined chain; each step is planned when its input exists.
+    Chain(CustomAction),
+}
+
+struct Job {
+    id: u64,
+    batch: u64,
+    inputs: Vec<PathBuf>,
+    kind: Kind,
+    work: Work,
+    cancelled: Arc<AtomicBool>,
+}
+
+/// Maps a step's own 0–100 onto its share of the job's progress bar.
+#[derive(Clone, Copy)]
+struct Span(u8, u8);
+
+impl Span {
+    const FULL: Span = Span(0, 100);
+    fn at(self, p: u8) -> u8 {
+        (self.0 as u32 + p as u32 * (self.1 - self.0) as u32 / 100).min(99) as u8
+    }
+}
+
 impl Jobs {
-    /// Starts one job per input (merging is one job for all of them).
-    /// Errors only when no job could start.
+    /// Queues one job per input (merging is one job for all of them) and
+    /// returns at once. Errors only when no job could be queued; files that
+    /// cannot take the action show up as failed in the toast.
     pub fn start(
         self: &Arc<Self>,
         app: &AppHandle,
         action: &str,
         inputs: Vec<String>,
         opts: &Options,
+        settings: &Settings,
     ) -> Result<(), String> {
         let mut inputs: Vec<PathBuf> = inputs.into_iter().map(PathBuf::from).collect();
-        if action == "merge" {
+        if inputs.is_empty() {
+            return Err("nothing_selected".into());
+        }
+        let custom = match action.strip_prefix("custom:") {
+            Some(id) => Some(settings.custom.iter().find(|c| c.id == id).cloned().ok_or("not_ready")?),
+            None => None,
+        };
+        let groups: Vec<Vec<PathBuf>> = if action == "merge" {
             // Explorer reports the selection in click order; file names are more predictable.
             inputs.sort_by_key(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
-            return self.start_one(app, action, inputs, opts);
-        }
-        let mut started = 0;
-        let mut last_err = String::new();
-        for input in inputs {
-            match self.start_one(app, action, vec![input], opts) {
-                Ok(()) => started += 1,
-                Err(e) => last_err = e,
-            }
-        }
-        if started == 0 { Err(last_err) } else { Ok(()) }
-    }
-
-    fn start_one(self: &Arc<Self>, app: &AppHandle, action: &str, inputs: Vec<PathBuf>, opts: &Options) -> Result<(), String> {
-        let input = inputs[0].clone();
-        let ext = input
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        let kind = crate::files::kind_of(&ext);
-        let media = matches!(kind, crate::files::Kind::Video | crate::files::Kind::Audio);
-        // Probing runs ffmpeg; only audio and video need it.
-        let probe = if media { probe(&input) } else { Probe::default() };
-        let plan = recipes::plan(action, &ext, probe, opts).map_err(plan_error)?;
-        let program = match plan.tool.engine() {
-            None => ffmpeg_path(),
-            Some((engine, program)) => crate::engines::program(app, engine, program)
-                .ok_or_else(|| format!("engine_missing:{engine}"))?,
+            vec![inputs]
+        } else {
+            inputs.into_iter().map(|p| vec![p]).collect()
         };
-        let duration = plan.expected.or(probe.duration);
-        let output = output_path(&input, &plan.suffix, if plan.dir { "" } else { &plan.ext });
-        // With a post step ffmpeg writes an intermediate file next to the result.
-        let written = match plan.post {
-            Some(Post::JpegToPdf(_)) => output.with_extension("mutabor-tmp.jpg"),
-            _ => output.clone(),
-        };
-        if plan.dir {
-            std::fs::create_dir(&output).map_err(|e| e.to_string())?;
-        }
 
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let cancelled = Arc::new(AtomicBool::new(false));
-        self.running.lock().unwrap().insert(id, Running { child: None, cancelled: cancelled.clone() });
-        let name = output.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        let steady = plan.tool != Tool::Ffmpeg && !plan.per_page;
-        let _ = app.emit_to(TOAST, "job", Event::Started { id, name, steady });
-        show_toast(app);
-
-        let jobs = self.clone();
-        let app = app.clone();
-        std::thread::spawn(move || {
-            let result = jobs.work(&app, id, &plan, &program, &inputs, &written, duration);
-            let ok = result.is_ok() && !cancelled.load(Ordering::Relaxed);
-            let mut result = result;
-            if ok {
-                if let Some(Post::JpegToPdf(page)) = plan.post {
-                    result = crate::pdf::convert(&written, &output, page);
-                }
-            }
-            if written != output {
-                let _ = std::fs::remove_file(&written);
-            }
-            jobs.running.lock().unwrap().remove(&id);
-
-            let event = match (result, cancelled.load(Ordering::Relaxed)) {
-                (Ok(()), false) => Event::Done {
-                    id,
-                    output: output.to_string_lossy().into_owned(),
-                    before: inputs.iter().map(|p| size_of(p)).sum(),
-                    after: size_of(&output),
-                },
-                (result, cancelled) => {
-                    // Never leave a half-written result behind.
-                    if plan.dir {
-                        let _ = std::fs::remove_dir_all(&output);
-                    } else {
-                        let _ = std::fs::remove_file(&output);
-                    }
-                    if cancelled {
-                        Event::Cancelled { id }
-                    } else {
-                        let message = result.err().unwrap_or_default();
-                        eprintln!("job {id} failed: {message}");
-                        Event::Failed { id, message }
-                    }
-                }
+        let batch = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let mut jobs = Vec::new();
+        let mut rejected = Vec::new();
+        for group in groups {
+            let kind = crate::files::kind_of(&ext_of(&group[0]));
+            let work = match &custom {
+                Some(c) => Ok(Work::Chain(c.clone())),
+                None => self.prepare(app, action, &group[0], opts),
             };
-            let _ = app.emit_to(TOAST, "job", event);
-        });
+            match work {
+                Ok(work) => jobs.push(Job {
+                    id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                    batch,
+                    inputs: group,
+                    kind,
+                    work,
+                    cancelled: Arc::new(AtomicBool::new(false)),
+                }),
+                Err(e) => rejected.push((group, e)),
+            }
+        }
+        if jobs.is_empty() {
+            return Err(rejected.into_iter().next().map(|(_, e)| e).unwrap_or_default());
+        }
+
+        let total = jobs.len() + rejected.len();
+        let _ = app.emit_to(TOAST, "job", Event::Batch { batch, action: action.into(), total });
+        show_toast(app);
+        for (group, message) in rejected {
+            let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+            let name = group[0].file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let _ = app.emit_to(TOAST, "job", Event::Started { id, batch, name, steady: true });
+            let _ = app.emit_to(TOAST, "job", Event::Failed { id, message });
+        }
+        self.batches
+            .lock()
+            .unwrap()
+            .insert(batch, Batch { left: jobs.len(), outputs: Vec::new(), copy: settings.copy_result });
+
+        let parallel = settings.parallel;
+        for job in jobs {
+            let name = job.inputs[0].file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let steady = matches!(&job.work, Work::Plan { plan, .. } if plan.tool != Tool::Ffmpeg && !plan.per_page);
+            self.running.lock().unwrap().insert(
+                job.id,
+                Running { batch, child: None, cancelled: job.cancelled.clone() },
+            );
+            let _ = app.emit_to(TOAST, "job", Event::Started { id: job.id, batch, name, steady });
+            let jobs = self.clone();
+            let app = app.clone();
+            let limit = parallel.limit(job.kind);
+            std::thread::spawn(move || jobs.run_job(&app, job, limit));
+        }
         Ok(())
     }
 
-    /// Builds and runs the job's processes in order; Err carries the last
-    /// lines the failing program printed.
+    fn prepare(&self, app: &AppHandle, action: &str, input: &Path, opts: &Options) -> Result<Work, String> {
+        let probe = probe_if_media(input);
+        let plan = recipes::plan(action, &ext_of(input), probe, opts).map_err(plan_error)?;
+        let program = program_for(app, plan.tool)?;
+        let duration = plan.expected.or(probe.duration);
+        Ok(Work::Plan { plan, program, duration })
+    }
+
+    /// Waits for a free slot for this kind of file; false when cancelled meanwhile.
+    fn acquire(&self, kind: Kind, limit: usize, cancelled: &AtomicBool) -> bool {
+        let mut busy = self.busy.lock().unwrap();
+        loop {
+            if cancelled.load(Ordering::Relaxed) {
+                return false;
+            }
+            let n = busy.entry(kind).or_insert(0);
+            if *n < limit {
+                *n += 1;
+                return true;
+            }
+            busy = self.freed.wait_timeout(busy, Duration::from_millis(250)).unwrap().0;
+        }
+    }
+
+    fn release(&self, kind: Kind) {
+        if let Some(n) = self.busy.lock().unwrap().get_mut(&kind) {
+            *n = n.saturating_sub(1);
+        }
+        self.freed.notify_all();
+    }
+
+    fn run_job(&self, app: &AppHandle, job: Job, limit: usize) {
+        let result = if self.acquire(job.kind, limit, &job.cancelled) {
+            let _ = app.emit_to(TOAST, "job", Event::Running { id: job.id });
+            let r = match &job.work {
+                Work::Plan { plan, program, duration } => {
+                    let dir = result_dir(app, &job.inputs[0]);
+                    let ext = if plan.dir { "" } else { &plan.ext };
+                    let output = output_in(&dir, &job.inputs[0], &plan.suffix, ext);
+                    self.run_plan(app, job.id, plan, program, &job.inputs, &output, *duration, Span::FULL)
+                        .map(|()| output)
+                }
+                Work::Chain(custom) => self.run_chain(app, job.id, custom, &job.inputs[0]),
+            };
+            self.release(job.kind);
+            r
+        } else {
+            Err("cancelled".into())
+        };
+        self.running.lock().unwrap().remove(&job.id);
+
+        let cancelled = job.cancelled.load(Ordering::Relaxed);
+        let output = match (&result, cancelled) {
+            (Ok(output), false) => Some(output.clone()),
+            (Ok(output), true) => {
+                remove(output);
+                None
+            }
+            _ => None,
+        };
+        let event = match (&output, result) {
+            (Some(output), _) => Event::Done {
+                id: job.id,
+                output: output.to_string_lossy().into_owned(),
+                before: job.inputs.iter().map(|p| size_of(p)).sum(),
+                after: size_of(output),
+            },
+            (None, _) if cancelled => Event::Cancelled { id: job.id },
+            (None, Err(message)) => {
+                eprintln!("job {} failed: {message}", job.id);
+                Event::Failed { id: job.id, message }
+            }
+            (None, Ok(_)) => Event::Cancelled { id: job.id },
+        };
+        let _ = app.emit_to(TOAST, "job", event);
+        self.finish(app, job.batch, output);
+    }
+
+    /// Counts a job off its batch; the last one copies the results if asked to.
+    fn finish(&self, app: &AppHandle, batch: u64, output: Option<PathBuf>) {
+        let done = {
+            let mut batches = self.batches.lock().unwrap();
+            let Some(b) = batches.get_mut(&batch) else { return };
+            b.left = b.left.saturating_sub(1);
+            b.outputs.extend(output);
+            (b.left == 0).then(|| (b.copy, b.outputs.clone()))
+        };
+        if let Some((copy, outputs)) = done {
+            let copied = copy && !outputs.is_empty() && crate::clipboard::copy_files(&outputs).is_ok();
+            let _ = app.emit_to(TOAST, "job", Event::Finished { batch, copied });
+        }
+    }
+
+    /// Runs a plan into `output`; removes a partial result on failure.
+    #[allow(clippy::too_many_arguments)]
+    fn run_plan(
+        &self,
+        app: &AppHandle,
+        id: u64,
+        plan: &Plan,
+        program: &Path,
+        inputs: &[PathBuf],
+        output: &Path,
+        duration: Option<f64>,
+        span: Span,
+    ) -> Result<(), String> {
+        // With a post step ffmpeg writes an intermediate file next to the result.
+        let written = match plan.post {
+            Some(Post::JpegToPdf(_)) => output.with_extension("mutabor-tmp.jpg"),
+            _ => output.to_path_buf(),
+        };
+        if plan.dir {
+            std::fs::create_dir(output).map_err(|e| e.to_string())?;
+        }
+        let mut result = self.work(app, id, plan, program, inputs, &written, duration, span);
+        if result.is_ok() {
+            if let Some(Post::JpegToPdf(page)) = plan.post {
+                result = crate::pdf::convert(&written, output, page);
+            }
+        }
+        if written != output {
+            let _ = std::fs::remove_file(&written);
+        }
+        if result.is_err() {
+            remove(output);
+        }
+        result
+    }
+
+    /// Runs a user-defined chain: each step works on the previous result,
+    /// intermediate files live in a temporary folder.
+    fn run_chain(&self, app: &AppHandle, id: u64, custom: &CustomAction, input: &Path) -> Result<PathBuf, String> {
+        let tmp = std::env::temp_dir().join(format!("mutabor-chain-{id}"));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+        let n = custom.steps.len();
+        let result = (|| {
+            if n == 0 {
+                return Err("not_ready".to_string());
+            }
+            let mut current = input.to_path_buf();
+            for (i, step) in custom.steps.iter().enumerate() {
+                let probe = probe_if_media(&current);
+                let plan = match step {
+                    ChainStep::Action { action, options } => {
+                        recipes::plan(action, &ext_of(&current), probe, options).map_err(plan_error)?
+                    }
+                    ChainStep::Ffmpeg { ffmpeg, ext } => Plan {
+                        ext: ext.trim_start_matches('.').to_lowercase(),
+                        args: split_args(ffmpeg),
+                        ..Default::default()
+                    },
+                };
+                let last = i + 1 == n;
+                if plan.dir && !last {
+                    return Err("folder_not_last".into());
+                }
+                let program = program_for(app, plan.tool)?;
+                let output = if last {
+                    let ext = if plan.dir { "" } else { &plan.ext };
+                    output_in(&result_dir(app, input), input, &slug(&custom.name), ext)
+                } else {
+                    tmp.join(format!("step{i}.{}", plan.ext))
+                };
+                let span = Span((i * 100 / n) as u8, ((i + 1) * 100 / n) as u8);
+                let duration = plan.expected.or(probe.duration);
+                self.run_plan(app, id, &plan, &program, std::slice::from_ref(&current), &output, duration, span)?;
+                if self.running.lock().unwrap().get(&id).is_some_and(|r| r.cancelled.load(Ordering::Relaxed)) {
+                    remove(&output);
+                    return Err("cancelled".into());
+                }
+                current = output;
+            }
+            Ok(current)
+        })();
+        let _ = std::fs::remove_dir_all(&tmp);
+        result
+    }
+
+    /// Builds and runs the processes of one plan in order; Err carries the
+    /// last lines the failing program printed.
+    #[allow(clippy::too_many_arguments)]
     fn work(
         &self,
         app: &AppHandle,
@@ -267,6 +572,7 @@ impl Jobs {
         inputs: &[PathBuf],
         written: &Path,
         duration: Option<f64>,
+        span: Span,
     ) -> Result<(), String> {
         let mut steps = Vec::new();
         match plan.tool {
@@ -310,9 +616,10 @@ impl Jobs {
 
         let total = steps.len();
         for (i, step) in steps.into_iter().enumerate() {
-            self.run_step(app, id, step, duration)?;
+            let part = Span(span.at((i * 100 / total) as u8), span.at(((i + 1) * 100 / total) as u8));
+            self.run_step(app, id, step, duration, part)?;
             if total > 1 {
-                let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: ((i + 1) * 100 / total).min(99) as u8 });
+                let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: part.1 });
             }
         }
         if matches!(plan.post, Some(Post::PngPagesToJpg(_))) {
@@ -325,7 +632,7 @@ impl Jobs {
         Ok(())
     }
 
-    fn run_step(&self, app: &AppHandle, id: u64, mut step: Step, duration: Option<f64>) -> Result<(), String> {
+    fn run_step(&self, app: &AppHandle, id: u64, mut step: Step, duration: Option<f64>, span: Span) -> Result<(), String> {
         let mut child = step
             .cmd
             .stdin(Stdio::null())
@@ -372,7 +679,7 @@ impl Jobs {
                 continue;
             };
             if let Some(total) = duration.filter(|d| *d > 0.0) {
-                let percent = (us / 1e6 / total * 100.0).clamp(0.0, 99.0) as u8;
+                let percent = span.at((us / 1e6 / total * 100.0).clamp(0.0, 100.0) as u8);
                 if percent > last {
                     last = percent;
                     let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent });
@@ -395,8 +702,13 @@ impl Jobs {
     pub fn install_engine(&self, app: &AppHandle, engine: &str, title: &str) -> Result<(), String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let cancelled = Arc::new(AtomicBool::new(false));
-        self.running.lock().unwrap().insert(id, Running { child: None, cancelled: cancelled.clone() });
-        let _ = app.emit_to(TOAST, "job", Event::Started { id, name: title.into(), steady: false });
+        self.running
+            .lock()
+            .unwrap()
+            .insert(id, Running { batch: id, child: None, cancelled: cancelled.clone() });
+        let _ = app.emit_to(TOAST, "job", Event::Batch { batch: id, action: "engine".into(), total: 1 });
+        let _ = app.emit_to(TOAST, "job", Event::Started { id, batch: id, name: title.into(), steady: false });
+        let _ = app.emit_to(TOAST, "job", Event::Running { id });
         show_toast(app);
         let result = crate::engines::install(app, engine, &cancelled, |percent| {
             let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent });
@@ -408,6 +720,7 @@ impl Jobs {
             Err(e) => Event::Failed { id, message: e.clone() },
         };
         let _ = app.emit_to(TOAST, "job", event);
+        let _ = app.emit_to(TOAST, "job", Event::Finished { batch: id, copied: false });
         result
     }
 
@@ -418,6 +731,34 @@ impl Jobs {
                 let _ = child.kill();
             }
         }
+        self.freed.notify_all();
+    }
+
+    /// Cancels every job of a batch, queued or running.
+    pub fn cancel_batch(&self, batch: u64) {
+        for job in self.running.lock().unwrap().values_mut().filter(|j| j.batch == batch) {
+            job.cancelled.store(true, Ordering::Relaxed);
+            if let Some(child) = job.child.as_mut() {
+                let _ = child.kill();
+            }
+        }
+        self.freed.notify_all();
+    }
+
+    /// Deletes the results a batch produced. Only paths Mutabor itself wrote
+    /// for that batch are touched.
+    pub fn undo(&self, batch: u64) -> usize {
+        let outputs = self.batches.lock().unwrap().get_mut(&batch).map(|b| std::mem::take(&mut b.outputs));
+        let outputs = outputs.unwrap_or_default();
+        for p in &outputs {
+            remove(p);
+        }
+        outputs.len()
+    }
+
+    pub fn copy(&self, batch: u64) -> Result<(), String> {
+        let outputs = self.batches.lock().unwrap().get(&batch).map(|b| b.outputs.clone()).unwrap_or_default();
+        crate::clipboard::copy_files(&outputs)
     }
 }
 
@@ -505,6 +846,15 @@ mod tests {
         let back = run("to_md", &[epub]);
         assert!(std::fs::read_to_string(back).unwrap().contains("**мир**"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn user_command_lines() {
+        assert_eq!(split_args(r#"-vf "scale=640:-2, hflip" -an"#), ["-vf", "scale=640:-2, hflip", "-an"]);
+        assert_eq!(split_args("  -c:v  copy "), ["-c:v", "copy"]);
+        assert_eq!(split_args("-metadata title=''"), ["-metadata", "title="]);
+        assert_eq!(slug("Сжать для Discord!"), "_Сжать-для-Discord");
+        assert_eq!(slug("!!"), "");
     }
 
     #[test]

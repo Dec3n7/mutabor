@@ -16,7 +16,7 @@
         <button id="hotkey" class="field"></button>
         <button id="hotkey-reset" class="link" data-t="s_hotkey_reset"></button>
       </div>
-      <p class="note" id="hotkey-note" data-t="s_hotkey_note"></p>
+      <p class="note" data-t="s_hotkey_note"></p>
     </section>
 
     <section>
@@ -37,6 +37,40 @@
     <section>
       <label class="check"><input type="checkbox" id="remember" /> <span data-t="s_remember"></span></label>
       <button id="forget" class="link"></button>
+      <label class="check"><input type="checkbox" id="copy-result" /> <span data-t="s_copy_result"></span></label>
+      <p class="note" data-t="s_copy_result_note"></p>
+    </section>
+
+    <section>
+      <label data-t="s_queue"></label>
+      <div id="parallel" class="grid"></div>
+      <p class="note" data-t="s_queue_note"></p>
+    </section>
+
+    <section>
+      <label data-t="s_action_hotkeys"></label>
+      <div id="action-hotkeys"></div>
+      <div class="line">
+        <select id="hotkey-action" class="field"></select>
+        <button id="hotkey-add" class="link" data-t="s_assign"></button>
+      </div>
+      <p class="note" data-t="s_action_hotkeys_note"></p>
+    </section>
+
+    <section>
+      <label data-t="s_custom"></label>
+      <div id="custom"></div>
+      <div id="editor" hidden></div>
+      <div class="line">
+        <button id="custom-new" class="link" data-t="s_custom_new"></button>
+        <button id="custom-export" class="link" data-t="s_export"></button>
+        <button id="custom-import" class="link" data-t="s_import"></button>
+      </div>
+      <div id="import-box" hidden>
+        <textarea id="import-text" class="field code" rows="5" spellcheck="false"></textarea>
+        <button id="import-go" class="link" data-t="s_import_go"></button>
+      </div>
+      <p class="note" data-t="s_custom_note"></p>
     </section>
 
     <section>

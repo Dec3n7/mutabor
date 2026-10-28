@@ -8,7 +8,7 @@ pub fn selected_paths() -> Vec<String> {
     imp::selected_paths().unwrap_or_default()
 }
 
-fn lines(bytes: &[u8]) -> Vec<String> {
+pub(crate) fn lines(bytes: &[u8]) -> Vec<String> {
     String::from_utf8_lossy(bytes)
         .lines()
         .map(str::trim)
