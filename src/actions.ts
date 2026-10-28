@@ -18,6 +18,8 @@ export interface Action {
   keywords?: string;
   /** Fields of the settings submenu (Shift+Enter); none means it runs as is. */
   options?: Field[];
+  /** Always opens the submenu: running without choices makes no sense. */
+  ask?: boolean;
   /** Short button text for quick actions; the full label becomes a tooltip. */
   glyph?: string;
   /** Planned but not implemented yet; kept in the catalog, hidden from the menu. */
@@ -25,19 +27,70 @@ export interface Action {
 }
 
 /** Submenu fields; values mirror `recipes::Options` on the Rust side. */
-export type Field = "quality" | "height" | "width" | "fps";
-export type Options = Partial<Record<"height" | "width" | "fps", number>> & { quality?: Quality };
+export type Field = "quality" | "height" | "width" | "fps" | "start" | "end" | "side" | "ratio" | "page";
 export type Quality = "high" | "normal" | "small";
+export interface Options {
+  quality?: Quality;
+  height?: number;
+  width?: number;
+  fps?: number;
+  /** Trim range in seconds. */
+  start?: number;
+  end?: number;
+  side?: number;
+  ratio?: [number, number];
+  page?: "a4" | "original";
+}
+
+/** Fields typed as text (a time) rather than picked from chips. */
+export const TIME_FIELDS: Field[] = ["start", "end"];
 
 /** Choices per field, in display order. A size of 0 keeps the original. */
-export const CHOICES: Record<Field, (string | number)[]> = {
+export const CHOICES: Partial<Record<Field, (string | number)[]>> = {
   quality: ["high", "normal", "small"],
   height: [0, 2160, 1080, 720, 480],
   width: [0, 720, 480, 320],
   fps: [24, 15, 12, 10],
+  side: [3840, 2560, 1920, 1280, 800, 512],
+  ratio: ["1:1", "4:3", "3:2", "16:9", "9:16", "4:5"],
+  page: ["a4", "original"],
 };
 
+/** Choices for a field of this action; resizing has no "original" size. */
+export function choicesFor(a: Action, f: Field): (string | number)[] {
+  if (a.id === "resize" && f === "height") return [2160, 1440, 1080, 720, 480, 360];
+  return CHOICES[f] ?? [];
+}
+
+/** Option value as shown in a chip: ratios are kept as [w, h]. */
+export function chipValue(o: Options, f: Field): string | number | undefined {
+  const v = o[f];
+  return Array.isArray(v) ? v.join(":") : v;
+}
+
+export function setChip(o: Options, f: Field, v: string | number) {
+  const rec = o as Record<string, unknown>;
+  rec[f] = f === "ratio" ? String(v).split(":").map(Number) : v;
+}
+
+/** "1:02:03.5", "2:30" or "90" -> seconds; "" -> undefined; junk -> NaN. */
+export function parseTime(text: string): number | undefined {
+  const s = text.trim().replace(",", ".");
+  if (s === "") return undefined;
+  if (!/^\d+(:\d{1,2}){0,2}(\.\d+)?$/.test(s)) return NaN;
+  return s.split(":").reduce((acc, part) => acc * 60 + Number(part), 0);
+}
+
+export function formatTime(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = +(secs % 60).toFixed(2);
+  const ss = (s < 10 ? "0" : "") + s;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
 const VIDEO: Field[] = ["quality", "height"];
+const TRIM: Field[] = ["start", "end"];
 const QUALITY: Field[] = ["quality"];
 
 const convert = (ext: string, keywords = "", options?: Field[]): Action => ({
@@ -66,8 +119,8 @@ export const ACTIONS: Record<Kind, Action[]> = {
     convert("mov", "", VIDEO),
     convert("mkv"),
     { id: "compress", keywords: "сжать size", options: VIDEO },
-    { id: "trim", keywords: "обрезать cut", soon: true },
-    { id: "resize", keywords: "размер 1080 720", soon: true },
+    { id: "trim", keywords: "обрезать cut время", options: [...TRIM, "quality"], ask: true },
+    { id: "resize", keywords: "размер 1080 720", options: ["height", "quality"] },
     { id: "preset_telegram", keywords: "telegram телеграм" },
     { id: "preset_discord", keywords: "discord дискорд" },
   ],
@@ -78,6 +131,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     convert("flac"),
     convert("m4a", "", QUALITY),
     convert("opus", "", QUALITY),
+    { id: "trim", keywords: "обрезать cut время", options: TRIM, ask: true },
     { id: "normalize", keywords: "громкость loudness" },
   ],
   image: [
@@ -86,9 +140,9 @@ export const ACTIONS: Record<Kind, Action[]> = {
     convert("webp", "", QUALITY),
     convert("avif", "", QUALITY),
     convert("ico", "icon иконка"),
-    { ...convert("pdf"), soon: true },
-    { id: "resize", keywords: "размер", soon: true },
-    { id: "crop", keywords: "обрезать", soon: true },
+    convert("pdf", "", ["page"]),
+    { id: "resize", keywords: "размер уменьшить", options: ["side", "quality"] },
+    { id: "crop", keywords: "обрезать кадрировать", options: ["ratio"] },
     { id: "compress", keywords: "сжать size", options: QUALITY },
     { id: "strip_meta", keywords: "exif gps метаданные" },
   ],
@@ -144,7 +198,10 @@ export function defaultOptions(a: Action, files: FileInfo[], quality: Quality): 
   const o: Options = {};
   for (const f of a.options ?? []) {
     if (f === "quality") o.quality = a.id === "compress" ? "small" : quality;
-    if (f === "height") o.height = a.id === "compress" && video ? 1080 : 0;
+    if (f === "height") o.height = a.id === "resize" ? 720 : a.id === "compress" && video ? 1080 : 0;
+    if (f === "side") o.side = 1920;
+    if (f === "ratio") o.ratio = [1, 1];
+    if (f === "page") o.page = "a4";
     if (f === "width") o.width = 480;
     if (f === "fps") o.fps = 12;
   }

@@ -1,5 +1,6 @@
 mod files;
 mod jobs;
+mod pdf;
 mod recipes;
 mod selection;
 mod settings;
@@ -67,9 +68,10 @@ async fn run_action(
 ) -> Result<(), String> {
     let current = store.get(&app);
     let opts = current.options_for(&action, options);
-    if options.is_some() && current.remember && current.last.get(&action) != Some(&opts) {
+    let keep = opts.reusable();
+    if options.is_some() && current.remember && current.last.get(&action) != Some(&keep) {
         let mut next = current;
-        next.last.insert(action.clone(), opts);
+        next.last.insert(action.clone(), keep);
         // Failing to remember a choice must not block the conversion.
         match store.save(&app, next.clone()) {
             Ok(()) => {

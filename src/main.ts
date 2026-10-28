@@ -3,14 +3,19 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Action,
-  CHOICES,
   Field,
   FileInfo,
   Options,
+  TIME_FIELDS,
   actionsFor,
+  chipValue,
+  choicesFor,
   defaultOptions,
+  formatTime,
   notSupportedYet,
+  parseTime,
   quickFor,
+  setChip,
   suggest,
 } from "./actions";
 import { formatSize, setLanguage, t } from "./i18n";
@@ -124,9 +129,11 @@ function select(idx: number) {
 
 function choiceLabel(field: Field, v: string | number): string {
   if (field === "quality") return t(`q_${v}`);
+  if (field === "page") return t(`page_${v}`);
+  if (field === "ratio") return String(v);
   if (v === 0) return t("original");
-  if (field === "height") return v === 2160 ? "4K" : `${v}p`;
-  if (field === "width") return `${v} px`;
+  if (field === "height") return v === 2160 ? "4K" : v === 1440 ? "2K" : `${v}p`;
+  if (field === "width" || field === "side") return `${v} px`;
   return String(v);
 }
 
@@ -148,6 +155,16 @@ function closeConfig() {
   search.focus();
 }
 
+/** Moves the keyboard focus to the submenu field `i` (text fields get the caret). */
+function focusField(i: number) {
+  if (!config) return;
+  config.field = i;
+  list.querySelectorAll(".group").forEach((g, n) => g.classList.toggle("focused", n === i));
+  const input = list.querySelectorAll(".group")[i]?.querySelector("input");
+  if (input) input.focus();
+  else (document.activeElement as HTMLElement | null)?.blur();
+}
+
 function renderConfig() {
   if (!config) return;
   const { action, opts, field } = config;
@@ -158,42 +175,70 @@ function renderConfig() {
   action.options!.forEach((f, i) => {
     const group = el("div", "group" + (i === field ? " focused" : ""));
     group.append(el("div", "section", t(`opt_${f}`)));
-    const chips = el("div", "chips");
-    for (const v of CHOICES[f]) {
-      const chip = el("button", "chip" + (opts[f] === v ? " on" : ""), choiceLabel(f, v));
-      chip.onclick = () => {
-        (opts as Record<string, unknown>)[f] = v;
-        config!.field = i;
-        renderConfig();
+    if (TIME_FIELDS.includes(f)) {
+      const input = document.createElement("input");
+      input.className = "time";
+      input.placeholder = f === "start" ? "0:00" : t("to_end");
+      const v = opts[f as "start" | "end"];
+      input.value = v === undefined ? "" : formatTime(v);
+      input.oninput = () => {
+        const secs = parseTime(input.value);
+        input.classList.toggle("bad", Number.isNaN(secs));
+        opts[f as "start" | "end"] = secs;
       };
-      chips.append(chip);
+      input.onfocus = () => focusField(i);
+      group.append(input);
+    } else {
+      const chips = el("div", "chips");
+      for (const v of choicesFor(action, f)) {
+        const chip = el("button", "chip" + (chipValue(opts, f) === v ? " on" : ""), choiceLabel(f, v));
+        chip.onclick = () => {
+          setChip(opts, f, v);
+          config!.field = i;
+          renderConfig();
+        };
+        chips.append(chip);
+      }
+      group.append(chips);
     }
-    group.append(chips);
     list.append(group);
   });
   const go = el("button", "primary", `${t("run")}  ↵`);
-  go.onclick = () => run(action, opts);
+  go.onclick = () => runConfig();
   list.append(go);
+  focusField(field);
 }
 
-/** ←/→ on the focused field of the submenu. */
+/** ←/→ on the focused chip field of the submenu. */
 function step(dir: number) {
   if (!config) return;
   const f = config.action.options![config.field];
-  const values = CHOICES[f];
-  const at = values.indexOf(config.opts[f] as string | number);
-  (config.opts as Record<string, unknown>)[f] = values[(at + dir + values.length) % values.length];
+  const values = choicesFor(config.action, f);
+  if (values.length === 0) return;
+  const at = values.indexOf(chipValue(config.opts, f)!);
+  setChip(config.opts, f, values[(at + dir + values.length) % values.length]);
   renderConfig();
 }
 
+function runConfig() {
+  if (!config) return;
+  const { start, end } = config.opts;
+  if (Number.isNaN(start) || Number.isNaN(end)) {
+    status.textContent = t("bad_time");
+    return;
+  }
+  run(config.action, config.opts);
+}
+
 async function run(a: Action, options?: Options) {
+  if (a.ask && !options) return openConfig(a);
   try {
     await invoke("run_action", { action: a.id, paths: files.map((f) => f.path), options: options ?? null });
     await hide();
   } catch (err) {
     const code = String(err);
     status.textContent =
-      ["not_ready", "no_duration", "no_audio"].includes(code) ? t(code) : t("start_failed", { msg: code });
+      ["not_ready", "no_duration", "no_audio", "bad_range"].includes(code) ? t(code) : t("start_failed", { msg: code });
   }
 }
 
@@ -229,12 +274,12 @@ gear.onclick = () => {
 
 function configKeys(e: KeyboardEvent) {
   const n = config!.action.options!.length;
-  if (e.key === "Escape" || e.key === "Backspace" || (e.key === "ArrowLeft" && e.altKey)) closeConfig();
-  else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-    config!.field = (config!.field + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
-    renderConfig();
-  } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") step(e.key === "ArrowRight" ? 1 : -1);
-  else if (e.key === "Enter") run(config!.action, config!.opts);
+  // Inside a time field, editing keys belong to the field.
+  const typing = document.activeElement instanceof HTMLInputElement;
+  if (e.key === "Escape" || (e.key === "Backspace" && !typing)) closeConfig();
+  else if (e.key === "ArrowDown" || e.key === "ArrowUp") focusField((config!.field + (e.key === "ArrowDown" ? 1 : -1) + n) % n);
+  else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !typing) step(e.key === "ArrowRight" ? 1 : -1);
+  else if (e.key === "Enter") runConfig();
   else return;
   e.preventDefault();
 }

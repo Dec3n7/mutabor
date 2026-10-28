@@ -24,7 +24,7 @@ impl Quality {
 
 /// User choices from the action's settings submenu. Missing fields fall back
 /// to the action's own defaults; a size of 0 means "keep the original".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Options {
     pub quality: Option<Quality>,
@@ -34,17 +34,57 @@ pub struct Options {
     pub width: Option<u32>,
     /// GIF frame rate.
     pub fps: Option<u32>,
+    /// Trim range in seconds; no end means "to the end".
+    pub start: Option<f64>,
+    pub end: Option<f64>,
+    /// Longest side of a resized image in pixels.
+    pub side: Option<u32>,
+    /// Crop aspect ratio, width:height.
+    pub ratio: Option<[u32; 2]>,
+    /// PDF page size for images.
+    pub page: Option<Page>,
+}
+
+impl Options {
+    /// The part worth remembering for next time: a trim range belongs to one file.
+    pub fn reusable(mut self) -> Self {
+        self.start = None;
+        self.end = None;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Page {
+    /// A4, image fitted with margins.
+    #[default]
+    A4,
+    /// The page is the image's own size at 96 dpi.
+    Original,
+}
+
+/// A step after ffmpeg, done by Mutabor itself.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Post {
+    /// ffmpeg writes a JPEG, which is then wrapped into a one-page PDF.
+    JpegToPdf(Page),
 }
 
 /// What to run for one input file.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Plan {
     /// Output extension without the dot.
     pub ext: String,
     /// Appended to the input's file stem, e.g. "_compressed".
-    pub suffix: &'static str,
+    pub suffix: String,
+    /// Arguments placed before `-i <input>` (fast seeking).
+    pub input_args: Vec<String>,
     /// Arguments placed between `-i <input>` and the output path.
     pub args: Vec<String>,
+    /// Length of the result in seconds when it differs from the input's.
+    pub expected: Option<f64>,
+    pub post: Option<Post>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -55,6 +95,8 @@ pub enum PlanError {
     NeedsDuration,
     /// The action works on sound and the input has no audio stream.
     NoAudio,
+    /// The trim range is empty or lies past the end of the file.
+    BadRange,
 }
 
 /// What ffmpeg reports about an input before converting it.
@@ -110,8 +152,44 @@ fn h264(crf: &str, filter: &str, audio_kbps: &str) -> Vec<String> {
     ])
 }
 
-fn plan_of(ext: &str, suffix: &'static str, args: Vec<String>) -> Result<Plan, PlanError> {
-    Ok(Plan { ext: ext.into(), suffix, args })
+fn plan_of(ext: &str, suffix: impl Into<String>, args: Vec<String>) -> Result<Plan, PlanError> {
+    Ok(Plan { ext: ext.into(), suffix: suffix.into(), args, ..Default::default() })
+}
+
+fn secs(v: f64) -> String {
+    format!("{v:.3}")
+}
+
+/// Cuts `[start, end)` out of a video or audio file. Re-encodes, so the cut
+/// lands on the exact frame rather than the nearest keyframe.
+fn trim_plan(input_ext: &str, probe: Probe, opts: &Options, q: Quality) -> Result<Plan, PlanError> {
+    let start = opts.start.unwrap_or(0.0).max(0.0);
+    let end = opts.end.or(probe.duration).filter(|e| *e > start + 0.05);
+    if opts.end.is_some() && end.is_none() {
+        return Err(PlanError::BadRange);
+    }
+    if probe.duration.is_some_and(|d| start >= d) || (start == 0.0 && opts.end.is_none()) {
+        return Err(PlanError::BadRange);
+    }
+    let length = end.map(|e| e - start);
+    let (ext, mut a) = if is_video(input_ext) {
+        let ext = if matches!(input_ext, "mp4" | "mov" | "mkv" | "m4v") { input_ext } else { "mp4" };
+        (ext, h264_at(q, 0))
+    } else {
+        // Same container; ffmpeg picks its default encoder (LAME, Vorbis, FLAC…).
+        (input_ext, args(&["-vn"]))
+    };
+    if let Some(len) = length {
+        a.extend(["-t".into(), secs(len)]);
+    }
+    Ok(Plan {
+        ext: ext.into(),
+        suffix: "_trimmed".into(),
+        input_args: vec!["-ss".into(), secs(start)],
+        args: a,
+        expected: length,
+        post: None,
+    })
 }
 
 /// Actions that only make sense when there is sound to work with.
@@ -124,7 +202,7 @@ const NEEDS_AUDIO: &[&str] = &[
 pub fn default_quality(action: &str) -> Quality {
     match action {
         "compress" => Quality::Small,
-        "rotate_left" | "rotate_right" | "flip_h" | "flip_v" | "strip_meta" => Quality::High,
+        "rotate_left" | "rotate_right" | "flip_h" | "flip_v" | "strip_meta" | "crop" => Quality::High,
         _ => Quality::Normal,
     }
 }
@@ -144,7 +222,10 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
     }
     let q = opts.quality.unwrap_or_else(|| default_quality(action));
     if crate::files::kind_of(input_ext) == crate::files::Kind::Image {
-        return image_plan(action, input_ext, q);
+        return image_plan(action, input_ext, q, opts);
+    }
+    if action == "trim" {
+        return trim_plan(input_ext, probe, opts, q);
     }
     let duration = probe.duration;
     let height = opts.height.unwrap_or(0);
@@ -172,6 +253,10 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
         "to_mkv" => plan_of("mkv", "", args(&["-map", "0", "-c", "copy"])),
         "compress" if is_video(input_ext) => {
             plan_of("mp4", "_compressed", h264_at(q, opts.height.unwrap_or(1080)))
+        }
+        "resize" if is_video(input_ext) => {
+            let h = opts.height.unwrap_or(720);
+            plan_of("mp4", format!("_{h}p"), h264_at(q, h))
         }
         "preset_telegram" => plan_of("mp4", "_telegram", h264("23", &fit_height(1080), "160k")),
         "preset_discord" => {
@@ -278,28 +363,45 @@ fn encode_image(ext: &str, input_ext: &str, filters: &[&str], quality: Quality) 
     Ok(out)
 }
 
-fn image_plan(action: &str, input_ext: &str, quality: Quality) -> Result<Plan, PlanError> {
+fn image_plan(action: &str, input_ext: &str, quality: Quality, opts: &Options) -> Result<Plan, PlanError> {
     // No SVG decoder in ffmpeg; SVG arrives with the libvips engine.
     if input_ext == "svg" {
         return Err(PlanError::NotReady);
     }
     let same = writable_ext(input_ext);
-    let (ext, suffix, filters): (&str, &'static str, &[&str]) = match action {
-        "to_jpg" => ("jpg", "", &[]),
-        "to_png" => ("png", "", &[]),
-        "to_webp" => ("webp", "", &[]),
-        "to_avif" => ("avif", "", &[]),
-        "to_ico" => ("ico", "", &[]),
-        "rotate_left" => (same, "_rotated", &["transpose=2"]),
-        "rotate_right" => (same, "_rotated", &["transpose=1"]),
-        "flip_h" => (same, "_flipped", &["hflip"]),
-        "flip_v" => (same, "_flipped", &["vflip"]),
-        "compress" => (same, "_compressed", &[]),
-        "strip_meta" => (same, "_clean", &[]),
-        // to_pdf, resize and crop need libvips or more submenu fields.
+    let (ext, suffix, filter): (&str, &str, Option<String>) = match action {
+        "to_jpg" => ("jpg", "", None),
+        "to_png" => ("png", "", None),
+        "to_webp" => ("webp", "", None),
+        "to_avif" => ("avif", "", None),
+        "to_ico" => ("ico", "", None),
+        "rotate_left" => (same, "_rotated", Some("transpose=2".into())),
+        "rotate_right" => (same, "_rotated", Some("transpose=1".into())),
+        "flip_h" => (same, "_flipped", Some("hflip".into())),
+        "flip_v" => (same, "_flipped", Some("vflip".into())),
+        "compress" => (same, "_compressed", None),
+        "strip_meta" => (same, "_clean", None),
+        // Never enlarges: a small picture stays as it is.
+        "resize" => {
+            let side = opts.side.unwrap_or(1920).max(1);
+            let fit = format!("scale='min({side},iw)':'min({side},ih)':force_original_aspect_ratio=decrease");
+            (same, "_resized", Some(fit))
+        }
+        // The largest centred area with the chosen proportions.
+        "crop" => {
+            let [w, h] = opts.ratio.unwrap_or([1, 1]);
+            let (w, h) = (w.max(1), h.max(1));
+            (same, "_cropped", Some(format!("crop='min(iw,ih*{w}/{h})':'min(ih,iw*{h}/{w})'")))
+        }
+        "to_pdf" => {
+            let page = opts.page.unwrap_or_default();
+            let a = encode_image("jpg", input_ext, &[], Quality::High)?;
+            return Ok(Plan { ext: "pdf".into(), args: a, post: Some(Post::JpegToPdf(page)), ..Default::default() });
+        }
         _ => return Err(PlanError::NotReady),
     };
-    plan_of(ext, suffix, encode_image(ext, input_ext, filters, quality)?)
+    let filters: Vec<&str> = filter.as_deref().into_iter().collect();
+    plan_of(ext, suffix, encode_image(ext, input_ext, &filters, quality)?)
 }
 
 fn is_video(ext: &str) -> bool {
@@ -391,25 +493,33 @@ mod tests {
         run(&["-f", "lavfi", "-i", "testsrc=duration=1:size=40x30:rate=5", gif.to_str().unwrap()]);
 
         let image_actions = ["to_jpg", "to_png", "to_webp", "to_avif", "to_ico", "rotate_left", "rotate_right",
-                             "flip_h", "flip_v", "compress", "strip_meta"];
+                             "flip_h", "flip_v", "compress", "strip_meta", "resize", "crop", "to_pdf"];
         let cases = [
             (&video, "mp4", ["to_gif", "extract_mp3", "to_mp4", "to_mov", "to_webm", "to_mkv", "compress",
-                             "preset_telegram", "preset_discord"].as_slice()),
-            (&audio, "ogg", ["to_mp3", "to_ogg", "to_wav", "to_flac", "to_m4a", "to_opus", "normalize"].as_slice()),
+                             "preset_telegram", "preset_discord", "resize", "trim"].as_slice()),
+            (&audio, "ogg", ["to_mp3", "to_ogg", "to_wav", "to_flac", "to_m4a", "to_opus", "normalize", "trim"]
+                .as_slice()),
             (&png, "png", image_actions.as_slice()),
             (&jpg, "jpg", image_actions.as_slice()),
             (&gif, "gif", image_actions.as_slice()),
         ];
         for (input, ext, actions) in cases {
             for action in actions {
-                let p = plan(action, ext, probe(3.0), &Options::default()).unwrap();
+                let opts = Options { start: Some(1.0), end: Some(2.5), side: Some(32), ratio: Some([16, 9]),
+                                     height: Some(240), ..Default::default() };
+                let p = plan(action, ext, probe(3.0), &opts).unwrap();
                 let stem = input.file_stem().unwrap().to_string_lossy();
                 let out = dir.join(format!("{stem}_{action}{}.{}", p.suffix, p.ext));
-                let mut args = vec!["-i".to_string(), input.to_string_lossy().into_owned()];
+                let written = if p.post.is_some() { out.with_extension("tmp.jpg") } else { out.clone() };
+                let mut args = p.input_args.clone();
+                args.extend(["-i".to_string(), input.to_string_lossy().into_owned()]);
                 args.extend(p.args.iter().cloned());
-                args.push(out.to_string_lossy().into_owned());
+                args.push(written.to_string_lossy().into_owned());
                 let args: Vec<&str> = args.iter().map(String::as_str).collect();
                 run(&args);
+                if let Some(Post::JpegToPdf(page)) = p.post {
+                    crate::pdf::convert(&written, &out, page).unwrap();
+                }
                 assert!(std::fs::metadata(&out).unwrap().len() > 0, "{action}: empty output");
             }
         }
@@ -432,6 +542,17 @@ mod tests {
             .unwrap()
             .stderr;
         assert!(String::from_utf8_lossy(&banner).contains("48x64"), "rotation did not swap sides");
+        let info = |name: &str| {
+            let out = Command::new(&bin).args(["-hide_banner", "-i", dir.join(name).to_str().unwrap()]).output();
+            String::from_utf8_lossy(&out.unwrap().stderr).into_owned()
+        };
+        // 64x48 cropped to 16:9 is 64x36; resized to a 32 px longest side is 32x24.
+        assert!(info("photo_crop_cropped.jpg").contains("64x36"), "crop ratio");
+        assert!(info("photo_resize_resized.jpg").contains("32x24"), "resize");
+        // Trimming 1.0–2.5 s leaves 1.5 s.
+        let trimmed = Probe::parse(&info("sample_trim_trimmed.mp4")).duration.unwrap();
+        assert!((trimmed - 1.5).abs() < 0.1, "trim length {trimmed}");
+        assert!(info("sample_resize_240p.mp4").contains("x240"), "video resize");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -463,8 +584,13 @@ mod tests {
     #[test]
     fn unsupported_yet() {
         let none = Probe::default();
-        assert_eq!(plan("to_pdf", "png", none, &Options::default()), Err(PlanError::NotReady));
-        assert_eq!(plan("resize", "jpg", none, &Options::default()), Err(PlanError::NotReady));
+        assert_eq!(plan("pages_png", "pdf", none, &Options::default()), Err(PlanError::NotReady));
+        // A trim needs a range that lies inside the file.
+        let range = |start, end| Options { start, end, ..Default::default() };
+        assert_eq!(plan("trim", "mp4", probe(10.0), &range(None, None)), Err(PlanError::BadRange));
+        assert_eq!(plan("trim", "mp4", probe(10.0), &range(Some(12.0), None)), Err(PlanError::BadRange));
+        assert_eq!(plan("trim", "mp4", probe(10.0), &range(Some(5.0), Some(4.0))), Err(PlanError::BadRange));
+        assert_eq!(plan("trim", "mp3", probe(10.0), &range(Some(5.0), None)).unwrap().expected, Some(5.0));
         assert_eq!(plan("to_png", "svg", none, &Options::default()), Err(PlanError::NotReady));
         assert_eq!(plan("normalize", "flac", probe(1.0), &Options::default()).unwrap().ext, "flac");
         // HEIC cannot be written back, so edits land in JPG.

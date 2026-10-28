@@ -249,6 +249,26 @@ footer {
   color: var(--accent);
 }
 
+.time {
+  width: calc(100% - 16px);
+  margin: 0 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.time:focus {
+  border-color: var(--accent);
+}
+
+.time.bad {
+  border-color: #d14b4b;
+}
+
 .primary {
   display: block;
   width: calc(100% - 16px);

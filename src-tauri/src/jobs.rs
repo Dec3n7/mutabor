@@ -1,7 +1,7 @@
 //! Runs conversions as ffmpeg child processes and reports progress to the
 //! toast window through events.
 
-use crate::recipes::{self, Options, PlanError, Probe};
+use crate::recipes::{self, Options, PlanError, Post, Probe};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader};
@@ -120,20 +120,28 @@ impl Jobs {
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
         let probe = probe(&input);
-        let duration = probe.duration;
         let plan = recipes::plan(action, &ext, probe, opts).map_err(|e| match e {
             PlanError::NotReady => "not_ready".to_string(),
             PlanError::NeedsDuration => "no_duration".to_string(),
             PlanError::NoAudio => "no_audio".to_string(),
+            PlanError::BadRange => "bad_range".to_string(),
         })?;
-        let output = output_path(&input, plan.suffix, &plan.ext);
+        let duration = plan.expected.or(probe.duration);
+        let output = output_path(&input, &plan.suffix, &plan.ext);
+        // With a post step ffmpeg writes an intermediate file next to the result.
+        let written = match plan.post {
+            Some(Post::JpegToPdf(_)) => output.with_extension("mutabor-tmp.jpg"),
+            None => output.clone(),
+        };
 
         let mut child = ffmpeg()
-            .args(["-hide_banner", "-nostdin", "-n", "-i"])
+            .args(["-hide_banner", "-nostdin", "-n"])
+            .args(&plan.input_args)
+            .arg("-i")
             .arg(&input)
             .args(&plan.args)
             .args(["-progress", "pipe:1", "-nostats"])
-            .arg(&output)
+            .arg(&written)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -187,7 +195,16 @@ impl Jobs {
             let Some(Running { mut child, cancelled }) = jobs.running.lock().unwrap().remove(&id) else {
                 return;
             };
-            let ok = child.wait().map(|s| s.success()).unwrap_or(false);
+            let mut ok = child.wait().map(|s| s.success()).unwrap_or(false);
+            if let (true, false, Some(Post::JpegToPdf(page))) = (ok, cancelled, plan.post) {
+                if let Err(e) = crate::pdf::convert(&written, &output, page) {
+                    tail.lock().unwrap().push_back(format!("pdf: {e}"));
+                    ok = false;
+                }
+            }
+            if written != output {
+                let _ = std::fs::remove_file(&written);
+            }
             let event = if ok && !cancelled {
                 let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
                 Event::Done {
