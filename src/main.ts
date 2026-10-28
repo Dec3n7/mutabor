@@ -392,7 +392,19 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+/** The tray menu is drawn by Rust, which does not know the system language:
+ * the menu window, loaded at startup, sends it the translated labels. */
+function syncTray(prefs: Settings) {
+  setLanguage(prefs.language);
+  invoke("set_tray_language", {
+    settings: t("tray_settings"),
+    quit: t("tray_quit"),
+  });
+}
+
 if (inTauri) {
+  invoke<Settings>("get_settings").then(syncTray);
+  listen<Settings>("settings", (e) => syncTray(e.payload));
   listen<{ files: FileInfo[]; source: string; settings: Settings; engines: EngineInfo[] }>("menu:open", (e) =>
     open(e.payload.files, e.payload.settings, e.payload.engines, e.payload.source),
   );
@@ -416,6 +428,7 @@ if (inTauri) {
   const params = new URLSearchParams(location.search);
   const demoSettings: Settings = {
     ...DEFAULT_SETTINGS,
+    language: params.get("lang") ?? "auto",
     hotkeys: { preset_discord: "Control+Alt+KeyD" },
     custom: [
       { id: "d1", name: "Discord без звука", kind: "video", steps: [{ action: "mute" }, { action: "preset_discord" }] },

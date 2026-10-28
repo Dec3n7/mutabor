@@ -205,8 +205,11 @@ export const ACTIONS: Record<Kind, Action[]> = {
 const SAME: Record<string, string> = { jpeg: "jpg", markdown: "md", htm: "html" };
 const ext = (f: FileInfo) => SAME[f.ext] ?? f.ext;
 
-/** Inputs no engine can read yet (SVG waits for libvips). */
-const UNREADABLE = new Set(["svg"]);
+/** Inputs no engine can read yet. */
+const UNREADABLE = new Set<string>();
+
+/** Pointless for a drawing that is rendered fresh anyway. */
+const NOT_FOR_SVG = new Set(["compress", "strip_meta"]);
 
 /** Mirror of `engines::EngineInfo` on the Rust side. */
 export interface EngineInfo {
@@ -263,6 +266,7 @@ export function actionsFor(
         (!a.clipboard || fromClipboard) &&
         engines.find((e) => e.name === a.engine)?.available !== false &&
         (!a.multi || files.length > 1) &&
+        !(NOT_FOR_SVG.has(a.id) && files.some((f) => f.ext === "svg")) &&
         (!a.target || files.some((f) => ext(f) !== a.target)),
     ),
     ...own,

@@ -16,7 +16,7 @@ import {
   choicesFor,
   setChip,
 } from "./actions";
-import { formatSize, setLanguage, t } from "./i18n";
+import { LANGUAGES, formatSize, setLanguage, t } from "./i18n";
 import { DEFAULT_SETTINGS, Settings, isModifier, showHotkey, specOf } from "./prefs";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -78,6 +78,9 @@ function render() {
   document.title = t("s_title");
   hotkey.textContent = recording === "menu" ? t("s_hotkey_press") : showHotkey(settings.hotkey);
   hotkey.classList.toggle("recording", recording === "menu");
+  if (language.options.length === 1) {
+    for (const [code, name] of Object.entries(LANGUAGES)) language.add(new Option(name, code));
+  }
   language.value = settings.language;
 
   quality.replaceChildren();

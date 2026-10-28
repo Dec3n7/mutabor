@@ -6,6 +6,7 @@ mod pdf;
 mod recipes;
 mod selection;
 mod settings;
+mod svg;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -224,6 +225,20 @@ fn cancel_job(jobs: State<'_, Arc<jobs::Jobs>>, id: u64) {
     jobs.cancel(id);
 }
 
+/// Tray menu entries, relabelled when the interface language changes.
+struct TrayItems {
+    settings: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+}
+
+#[tauri::command]
+fn set_tray_language(app: AppHandle, settings: String, quit: String) {
+    if let Some(items) = app.try_state::<TrayItems>() {
+        let _ = items.settings.set_text(settings);
+        let _ = items.quit.set_text(quit);
+    }
+}
+
 #[tauri::command]
 fn cancel_batch(jobs: State<'_, Arc<jobs::Jobs>>, batch: u64) {
     jobs.cancel_batch(batch);
@@ -273,6 +288,7 @@ fn setup_desktop(app: &mut tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Mutabor", true, None::<&str>)?;
     let tray_menu = Menu::with_items(app, &[&open, &quit])?;
+    app.manage(TrayItems { settings: open.clone(), quit: quit.clone() });
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle icon"))
         .tooltip("Mutabor")
@@ -312,7 +328,8 @@ pub fn run() {
             list_engines,
             install_engine,
             remove_engine,
-            open_settings
+            open_settings,
+            set_tray_language
         ])
         .setup(|app| {
             #[cfg(desktop)]

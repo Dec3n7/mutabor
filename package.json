@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tools": "node scripts/fetch-tools.mjs"
+    "tools": "node scripts/fetch-tools.mjs",
+    "check-locales": "node scripts/check-locales.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

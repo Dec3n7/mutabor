@@ -271,8 +271,9 @@ fn pdf_pages(mutool: &Path, pdf: &Path) -> Option<u32> {
 
 /// What one job does.
 enum Work {
-    /// A planned conversion; the plan was checked before queueing.
-    Plan { plan: Plan, program: PathBuf, duration: Option<f64> },
+    /// A planned conversion; the plan was checked before queueing. An SVG
+    /// input is drawn into a PNG of `svg_side` first.
+    Plan { plan: Plan, program: PathBuf, duration: Option<f64>, svg_side: Option<u32> },
     /// A user-defined chain; each step is planned when its input exists.
     Chain(CustomAction),
 }
@@ -383,10 +384,23 @@ impl Jobs {
 
     fn prepare(&self, app: &AppHandle, action: &str, input: &Path, opts: &Options) -> Result<Work, String> {
         let probe = probe_if_media(input);
-        let plan = recipes::plan(action, &ext_of(input), probe, opts).map_err(plan_error)?;
+        let ext = ext_of(input);
+        // An SVG becomes a PNG before the recipe runs.
+        let ext = if ext == "svg" { "png".to_string() } else { ext };
+        let plan = recipes::plan(action, &ext, probe, opts).map_err(plan_error)?;
         let program = program_for(app, plan.tool)?;
         let duration = plan.expected.or(probe.duration);
-        Ok(Work::Plan { plan, program, duration })
+        Ok(Work::Plan { plan, program, duration, svg_side: opts.side })
+    }
+
+    /// Draws an SVG into a temporary PNG; other files pass through.
+    fn rasterize(&self, id: u64, input: &Path, side: Option<u32>) -> Result<(PathBuf, Option<PathBuf>), String> {
+        if ext_of(input) != "svg" {
+            return Ok((input.to_path_buf(), None));
+        }
+        let png = std::env::temp_dir().join(format!("mutabor-svg-{id}-{}.png", self.next_id.fetch_add(1, Ordering::Relaxed)));
+        crate::svg::render(input, &png, side)?;
+        Ok((png.clone(), Some(png)))
     }
 
     /// Waits for a free slot for this kind of file; false when cancelled meanwhile.
@@ -416,12 +430,20 @@ impl Jobs {
         let result = if self.acquire(job.kind, limit, &job.cancelled) {
             let _ = app.emit_to(TOAST, "job", Event::Running { id: job.id });
             let r = match &job.work {
-                Work::Plan { plan, program, duration } => {
+                Work::Plan { plan, program, duration, svg_side } => {
                     let dir = result_dir(app, &job.inputs[0]);
                     let ext = if plan.dir { "" } else { &plan.ext };
+                    // Named after the original even when an SVG was drawn first.
                     let output = output_in(&dir, &job.inputs[0], &plan.suffix, ext);
-                    self.run_plan(app, job.id, plan, program, &job.inputs, &output, *duration, Span::FULL)
-                        .map(|()| output)
+                    self.rasterize(job.id, &job.inputs[0], *svg_side).and_then(|(first, tmp)| {
+                        let mut inputs = job.inputs.clone();
+                        inputs[0] = first;
+                        let r = self.run_plan(app, job.id, plan, program, &inputs, &output, *duration, Span::FULL);
+                        if let Some(tmp) = tmp {
+                            let _ = std::fs::remove_file(tmp);
+                        }
+                        r.map(|()| output)
+                    })
                 }
                 Work::Chain(custom) => self.run_chain(app, job.id, custom, &job.inputs[0]),
             };
@@ -523,6 +545,15 @@ impl Jobs {
             }
             let mut current = input.to_path_buf();
             for (i, step) in custom.steps.iter().enumerate() {
+                if ext_of(&current) == "svg" {
+                    let side = match step {
+                        ChainStep::Action { options, .. } => options.side,
+                        ChainStep::Ffmpeg { .. } => None,
+                    };
+                    let png = tmp.join(format!("step{i}-svg.png"));
+                    crate::svg::render(&current, &png, side)?;
+                    current = png;
+                }
                 let probe = probe_if_media(&current);
                 let plan = match step {
                     ChainStep::Action { action, options } => {

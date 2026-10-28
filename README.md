@@ -26,7 +26,7 @@ English section below.*
 | --- | --- | --- | --- |
 | Видео | mp4, mov, avi, mkv, webm, flv, wmv, 3gp | в MP4, WebM, MOV, MKV, GIF; звук в MP3; сжатие; обрезка по времени; размер; пресеты для Telegram и Discord (≤10 МБ) | FFmpeg, встроен |
 | Аудио | mp3, wav, ogg, flac, m4a, aac, opus, wma | в другой формат, обрезка, выравнивание громкости | FFmpeg, встроен |
-| Фото | jpg, png, webp, avif, gif, bmp, tiff, ico, heic | в другой формат, в PDF, поворот, отражение, размер, кадрирование по пропорциям, сжатие, удаление GPS и EXIF | FFmpeg, встроен |
+| Фото | jpg, png, webp, avif, gif, bmp, tiff, ico, heic, svg | в другой формат, в PDF, поворот, отражение, размер, кадрирование по пропорциям, сжатие, удаление GPS и EXIF | FFmpeg и resvg (SVG), встроены |
 | PDF | pdf | объединение, разделение по страницам, страницы в PNG и JPG, текст, сжатие | MuPDF, докачивается |
 | Книги и разметка | md, html, epub, fb2, txt | в Markdown, HTML, EPUB, FB2, TXT | Pandoc, докачивается |
 
@@ -54,8 +54,16 @@ English section below.*
 - Видео: убрать звук, изменить скорость, кадр в PNG, GIF из отрезка, рингтон
   для iPhone, голосовое для Telegram.
 
-Документы Word, Excel и PowerPoint не поддерживаются и не планируются. SVG
-появится позже.
+Документы Word, Excel и PowerPoint не поддерживаются и не планируются.
+
+### Языки
+
+English, русский, українська, español, português (Brasil), deutsch,
+français, italiano, polski, türkçe, 简体中文, 日本語, 한국어. По умолчанию — язык
+системы. Каждый язык — один файл в [`src/locales`](src/locales); чтобы
+добавить свой, скопируйте `en.ts`, переведите строки, добавьте язык в
+`src/i18n.ts` и проверьте командой `npm run check-locales`. Поправки к
+переводам приветствуются.
 
 ### Докачиваемые движки
 
@@ -150,11 +158,15 @@ press **Ctrl+Alt+C** (**⌘⌥C** on macOS) and pick an action — convert, comp
 rotate, resize — from a popup menu next to the cursor. Nothing leaves your
 computer: no accounts, no cloud, no telemetry.
 
-**Status:** early development. Video, audio, images, PDF and e-books work;
+**Status:** early development. Video, audio, images (SVG included), PDF and e-books work;
 Windows only for now, no installers yet. FFmpeg is bundled; MuPDF (PDF) and
 Pandoc (Markdown, HTML, EPUB, FB2) are downloaded from their official sites the
 first time you need them and checked against the SHA-256 in
 `tools/manifest.json`. That download is the only time Mutabor goes online.
+
+The interface speaks 13 languages; each is one file in `src/locales`, and
+`npm run check-locales` checks a new or edited one against English.
+Translation fixes are welcome.
 
 Build: `npm install`, then `npm run tauri dev`. Requirements:
 [Rust](https://rustup.rs), Node.js 20+, and the
