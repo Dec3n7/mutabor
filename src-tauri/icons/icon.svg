@@ -1,21 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Mutabor: a square turning into a circle inside a conversion loop. -->
+  <!-- "Mutabor!" turns the caliph into a stork in Hauff's tale ("Kalif Storch"):
+       a golden stork under a crescent moon, on a night-sky tile. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3b82f6"/>
-      <stop offset="1" stop-color="#7c3aed"/>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#1e2140"/>
+      <stop offset="1" stop-color="#0b0c18"/>
     </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6d27a"/>
+      <stop offset="1" stop-color="#d99a2b"/>
+    </linearGradient>
+    <mask id="crescent">
+      <circle cx="750" cy="250" r="110" fill="#fff"/>
+      <circle cx="796" cy="216" r="96" fill="#000"/>
+    </mask>
   </defs>
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
-  <g fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round">
-    <path d="M 262 430 A 260 260 0 0 1 700 300"/>
-    <path d="M 762 594 A 260 260 0 0 1 324 724"/>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#sky)"/>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="none" stroke="#f6d27a" stroke-opacity="0.18" stroke-width="8"/>
+
+  <!-- Moon and a few stars -->
+  <rect x="620" y="120" width="260" height="260" fill="url(#gold)" mask="url(#crescent)"/>
+  <g fill="#f6d27a">
+    <circle cx="230" cy="200" r="9"/>
+    <circle cx="560" cy="150" r="7"/>
+    <circle cx="840" cy="560" r="8"/>
   </g>
-  <g fill="#fff">
-    <path d="M 760 236 L 770 392 L 626 340 Z"/>
-    <path d="M 264 788 L 254 632 L 398 684 Z"/>
-    <!-- Half square, half circle: one thing becoming another. -->
-    <path d="M 512 404 L 404 404 L 404 620 L 512 620 Z"/>
-    <path d="M 512 404 A 108 108 0 0 1 512 620 Z"/>
+
+  <!-- Stork, facing left: long beak, S-shaped neck, standing on one leg -->
+  <g fill="url(#gold)">
+    <circle cx="400" cy="236" r="38"/>
+    <path d="M 372 226 L 196 318 L 380 258 Z"/>
+    <path d="M 376 252 C 360 330, 410 400, 480 432 L 520 392 C 462 370, 430 320, 432 246 Z"/>
+    <path d="M 462 450 C 482 368, 626 352, 708 392 L 836 424 L 706 452 C 654 524, 504 536, 462 450 Z"/>
+  </g>
+  <!-- wing line, cut out of the body -->
+  <path d="M 556 418 C 616 402, 690 410, 770 434" fill="none" stroke="#141629" stroke-width="16" stroke-linecap="round"/>
+  <g fill="none" stroke="#e8b452" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 586 500 L 586 846" stroke-width="22"/>
+    <path d="M 616 500 L 690 610 L 600 650" stroke-width="20"/>
+    <path d="M 540 852 L 640 852" stroke-width="18"/>
   </g>
 </svg>
