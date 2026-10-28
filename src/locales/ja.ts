@@ -209,4 +209,6 @@ export default {
   opt_speech: "話されている言語",
   speech_auto: "自動検出",
   purpose_whisper: "音声を字幕や文字にオフラインで変換",
+  remove_bg: "AI で背景を削除",
+  purpose_bgremove: "被写体を切り抜き、背景を透明にします。どのパソコンでも動作します",
 };

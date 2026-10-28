@@ -248,6 +248,22 @@
       }
     ]
   },
+  "bgremove": {
+    "purpose": "background removal: the IS-Net model, run inside the app by tract (no graphics card needed)",
+    "license": "Apache-2.0",
+    "version": "isnet-general-use",
+    "optional": true,
+    "title": "IS-Net",
+    "builds": {},
+    "extra": [
+      {
+        "url": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+        "sha256": "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
+        "size": 178648008,
+        "name": "isnet-general-use.onnx"
+      }
+    ]
+  },
   "planned": {
     "$comment": "Filled in when each engine is integrated; MuPDF has no official macOS or Linux build yet.",
     "libvips": "images, HEIC, SVG (LGPL-2.1) https://github.com/libvips/libvips/releases"

@@ -138,6 +138,8 @@ pub enum Tool {
     Upscaler,
     /// whisper.cpp speech recognition.
     Whisper,
+    /// Background removal, run inside the app (see `matting.rs`).
+    Matting,
 }
 
 impl Tool {
@@ -150,6 +152,8 @@ impl Tool {
             Tool::SevenZip => Some(("sevenzip", "7z")),
             Tool::Upscaler => Some(("realesrgan", "realesrgan-ncnn-vulkan")),
             Tool::Whisper => Some(("whisper", "whisper-cli")),
+            // A model-only engine: the "program" is the model file.
+            Tool::Matting => Some(("bgremove", crate::matting::MODEL_FILE)),
         }
     }
 }
@@ -625,6 +629,9 @@ fn image_plan(action: &str, input_ext: &str, quality: Quality, opts: &Options) -
         // A picture pasted from the clipboard, kept as a file in Pictures.
         "save" => ("png", "", None),
         "upscale" => return upscale_plan(input_ext, opts),
+        "remove_bg" => {
+            return Ok(Plan { tool: Tool::Matting, ext: "png".into(), suffix: "_nobg".into(), ..Default::default() });
+        }
         "rotate_left" => (same, "_rotated", Some("transpose=2".into())),
         "rotate_right" => (same, "_rotated", Some("transpose=1".into())),
         "flip_h" => (same, "_flipped", Some("hflip".into())),

@@ -7,6 +7,7 @@ mod recipes;
 mod selection;
 mod settings;
 mod svg;
+mod matting;
 mod updates;
 
 use std::collections::HashMap;

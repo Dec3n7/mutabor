@@ -209,4 +209,6 @@ export default {
   opt_speech: "Idioma falado",
   speech_auto: "Detectar",
   purpose_whisper: "Fala em legendas ou texto, offline",
+  remove_bg: "Remover fundo (IA)",
+  purpose_bgremove: "Recorta o objeto com fundo transparente; funciona em qualquer computador",
 };

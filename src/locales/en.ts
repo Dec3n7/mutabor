@@ -210,4 +210,6 @@ export default {
   opt_speech: "Spoken language",
   speech_auto: "Detect",
   purpose_whisper: "Speech to subtitles or text, offline",
+  remove_bg: "Remove background (AI)",
+  purpose_bgremove: "Cuts out the subject, transparent background; runs on any computer",
 };

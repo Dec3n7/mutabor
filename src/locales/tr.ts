@@ -209,4 +209,6 @@ export default {
   opt_speech: "Konuşma dili",
   speech_auto: "Algıla",
   purpose_whisper: "Konuşmayı altyazıya veya metne çevirir, çevrimdışı",
+  remove_bg: "Arka planı kaldır (YZ)",
+  purpose_bgremove: "Nesneyi kesip arka planı şeffaf yapar; her bilgisayarda çalışır",
 };

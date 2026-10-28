@@ -209,4 +209,6 @@ export default {
   opt_speech: "Idioma hablado",
   speech_auto: "Detectar",
   purpose_whisper: "De voz a subtítulos o texto, sin conexión",
+  remove_bg: "Quitar el fondo (IA)",
+  purpose_bgremove: "Recorta el sujeto con fondo transparente; funciona en cualquier equipo",
 };

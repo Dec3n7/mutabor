@@ -209,4 +209,6 @@ export default {
   opt_speech: "Langue parlée",
   speech_auto: "Détecter",
   purpose_whisper: "La parole en sous-titres ou en texte, hors ligne",
+  remove_bg: "Supprimer l'arrière-plan (IA)",
+  purpose_bgremove: "Détoure le sujet sur fond transparent ; fonctionne sur tout ordinateur",
 };

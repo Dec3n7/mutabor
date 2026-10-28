@@ -209,4 +209,6 @@ export default {
   opt_speech: "Język mowy",
   speech_auto: "Wykryj",
   purpose_whisper: "Mowa na napisy lub tekst, bez internetu",
+  remove_bg: "Usuń tło (AI)",
+  purpose_bgremove: "Wycina obiekt, tło staje się przezroczyste; działa na każdym komputerze",
 };

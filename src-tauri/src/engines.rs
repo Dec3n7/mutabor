@@ -52,6 +52,13 @@ struct Build {
     keep: bool,
 }
 
+impl Tool {
+    /// Only extra files, no program to unpack: a model run by the app itself.
+    fn model_only(&self) -> bool {
+        self.builds.is_empty()
+    }
+}
+
 impl Build {
     /// Where `program` lives inside the engine's folder, once installed.
     fn locate(&self, dir: &Path, program: &str) -> Option<PathBuf> {
@@ -108,6 +115,7 @@ pub fn list(app: &AppHandle) -> Vec<EngineInfo> {
         .map(|(name, t)| {
             let build = t.builds.get(TARGET);
             let dir = engine_dir(app, name, t);
+            let extras = t.extra.iter().all(|e| dir.join(&e.name).is_file());
             EngineInfo {
                 name: name.clone(),
                 title: t.title.clone(),
@@ -115,9 +123,9 @@ pub fn list(app: &AppHandle) -> Vec<EngineInfo> {
                 license: t.license.clone(),
                 purpose: t.purpose.clone(),
                 size: build.map_or(0, |b| b.size) + t.extra.iter().map(|e| e.size).sum::<u64>(),
-                available: build.is_some(),
-                installed: build.is_some_and(|b| b.files.values().all(|p| b.locate(&dir, p).is_some()))
-                    && t.extra.iter().all(|e| dir.join(&e.name).is_file()),
+                available: build.is_some() || t.model_only(),
+                installed: extras
+                    && (t.model_only() || build.is_some_and(|b| b.files.values().all(|p| b.locate(&dir, p).is_some()))),
             }
         })
         .collect()
@@ -126,7 +134,12 @@ pub fn list(app: &AppHandle) -> Vec<EngineInfo> {
 /// The installed program, e.g. ("mupdf", "mutool").
 pub fn program(app: &AppHandle, engine: &str, program: &str) -> Option<PathBuf> {
     let tool = tools().get(engine)?;
-    tool.builds.get(TARGET)?.locate(&engine_dir(app, engine, tool), program)
+    let dir = engine_dir(app, engine, tool);
+    if tool.model_only() {
+        let path = dir.join(program);
+        return path.is_file().then_some(path);
+    }
+    tool.builds.get(TARGET)?.locate(&dir, program)
 }
 
 /// The installed engine's folder, where its extra files are.
@@ -138,8 +151,11 @@ pub fn dir(app: &AppHandle, engine: &str) -> Option<PathBuf> {
 /// Downloads, verifies and unpacks an engine. `progress` gets 0–100.
 pub fn install(app: &AppHandle, name: &str, cancel: &AtomicBool, mut progress: impl FnMut(u8)) -> Result<(), String> {
     let tool = tools().get(name).ok_or("unknown engine")?;
-    let build = tool.builds.get(TARGET).ok_or("engine_unavailable")?;
     let dir = engine_dir(app, name, tool);
+    if tool.model_only() {
+        return install_extras(tool, &dir, cancel, &mut progress);
+    }
+    let build = tool.builds.get(TARGET).ok_or("engine_unavailable")?;
     let root = dir.parent().expect("versioned dir").to_path_buf();
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
 
@@ -203,6 +219,22 @@ pub fn install(app: &AppHandle, name: &str, cancel: &AtomicBool, mut progress: i
         for e in entries.flatten().filter(|e| e.path() != dir) {
             let _ = std::fs::remove_dir_all(e.path());
         }
+    }
+    Ok(())
+}
+
+/// A model-only engine: just its extra files, into a fresh folder.
+fn install_extras(tool: &Tool, dir: &Path, cancel: &AtomicBool, progress: &mut impl FnMut(u8)) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let total = tool.extra.iter().map(|e| e.size).sum::<u64>().max(1);
+    let mut done = 0;
+    for extra in &tool.extra {
+        let part = |p: u8| ((done + extra.size * p as u64 / 100) * 100 / total).min(99) as u8;
+        if let Err(e) = download(&extra.url, &dir.join(&extra.name), &extra.sha256, extra.size, cancel, &mut |p| progress(part(p))) {
+            let _ = std::fs::remove_dir_all(dir);
+            return Err(e);
+        }
+        done += extra.size;
     }
     Ok(())
 }

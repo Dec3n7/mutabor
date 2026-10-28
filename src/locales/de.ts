@@ -209,4 +209,6 @@ export default {
   opt_speech: "Gesprochene Sprache",
   speech_auto: "Erkennen",
   purpose_whisper: "Sprache zu Untertiteln oder Text, offline",
+  remove_bg: "Hintergrund entfernen (KI)",
+  purpose_bgremove: "Stellt das Motiv frei, transparenter Hintergrund; läuft auf jedem Computer",
 };

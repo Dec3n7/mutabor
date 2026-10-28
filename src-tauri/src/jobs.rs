@@ -689,6 +689,7 @@ impl Jobs {
     ) -> Result<(), String> {
         let mut steps = Vec::new();
         match plan.tool {
+            Tool::Matting => return self.remove_background(app, id, program, &inputs[0], written, span),
             Tool::Ffmpeg => {
                 let mut cmd = ffmpeg();
                 cmd.args(["-hide_banner", "-nostdin", "-n"])
@@ -780,6 +781,51 @@ impl Jobs {
             }
         }
         Ok(())
+    }
+
+    /// ffmpeg shrinks the picture for the model, the model (in-process) finds
+    /// the subject, and ffmpeg stretches that mask back as the alpha channel.
+    fn remove_background(
+        &self,
+        app: &AppHandle,
+        id: u64,
+        model: &Path,
+        input: &Path,
+        written: &Path,
+        span: Span,
+    ) -> Result<(), String> {
+        let banner = ffmpeg().arg("-hide_banner").arg("-i").arg(input).output().map_err(|e| e.to_string())?;
+        let (w, h) = recipes::parse_size(&String::from_utf8_lossy(&banner.stderr)).ok_or("not_a_picture")?;
+        let side = crate::matting::SIZE;
+        let small = ffmpeg()
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(input)
+            .args(["-frames:v", "1", "-vf", &format!("scale={side}:{side}:flags=bilinear,format=rgb24")])
+            .args(["-f", "rawvideo", "-"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !small.status.success() {
+            return Err(String::from_utf8_lossy(&small.stderr).trim().to_string());
+        }
+        let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: span.at(10) });
+        let mask = crate::matting::mask(model, &small.stdout)?;
+        let mask_file = written.with_extension("mutabor-mask.raw");
+        std::fs::write(&mask_file, mask).map_err(|e| e.to_string())?;
+        let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: span.at(90) });
+        let mut cmd = ffmpeg();
+        cmd.args(["-hide_banner", "-nostdin", "-n", "-i"])
+            .arg(input)
+            .args(["-f", "rawvideo", "-pix_fmt", "gray", "-s", &format!("{side}x{side}"), "-i"])
+            .arg(&mask_file)
+            .args([
+                "-filter_complex",
+                &format!("[1:v]scale={w}:{h}:flags=bicubic[m];[0:v]format=rgba[c];[c][m]alphamerge"),
+                "-frames:v", "1", "-c:v", "png", "-map_metadata", "-1",
+            ])
+            .arg(written);
+        let result = self.run_step(app, id, Step { cmd, ffmpeg: false }, None, span);
+        let _ = std::fs::remove_file(&mask_file);
+        result
     }
 
     fn run_step(&self, app: &AppHandle, id: u64, mut step: Step, duration: Option<f64>, span: Span) -> Result<(), String> {

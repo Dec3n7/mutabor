@@ -23,7 +23,7 @@ export interface Action {
   /** Always opens the submenu: running without choices makes no sense. */
   ask?: boolean;
   /** Optional engine the action needs; downloaded on first use. */
-  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan" | "whisper";
+  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan" | "whisper" | "bgremove";
   /** Works on the whole selection at once and needs at least two files. */
   multi?: boolean;
   /** Short button text for quick actions; the full label becomes a tooltip. */
@@ -218,6 +218,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "crop", keywords: "обрезать кадрировать crop", options: ["ratio"], window: true },
     { id: "compress", keywords: "сжать size", options: QUALITY },
     { id: "strip_meta", keywords: "exif gps метаданные" },
+    { id: "remove_bg", keywords: "фон удалить вырезать background remove transparent прозрачный", engine: "bgremove" },
     { id: "upscale", keywords: "увеличить апскейл upscale esrgan качество", engine: "realesrgan", options: ["model"] },
     ...PACK,
   ],

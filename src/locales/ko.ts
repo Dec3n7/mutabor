@@ -209,4 +209,6 @@ export default {
   opt_speech: "음성 언어",
   speech_auto: "자동 감지",
   purpose_whisper: "음성을 자막이나 텍스트로, 오프라인",
+  remove_bg: "AI로 배경 제거",
+  purpose_bgremove: "피사체를 잘라내고 배경을 투명하게 만듭니다. 어떤 컴퓨터에서도 작동합니다",
 };

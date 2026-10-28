@@ -209,4 +209,6 @@ export default {
   opt_speech: "Lingua parlata",
   speech_auto: "Rileva",
   purpose_whisper: "Dal parlato a sottotitoli o testo, offline",
+  remove_bg: "Rimuovi sfondo (IA)",
+  purpose_bgremove: "Scontorna il soggetto con sfondo trasparente; funziona su qualsiasi computer",
 };
