@@ -2,6 +2,7 @@ mod files;
 mod jobs;
 mod recipes;
 mod selection;
+mod settings;
 
 use std::sync::Arc;
 
@@ -11,10 +12,12 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WindowEvent};
 
 const MENU: &str = "menu";
+const SETTINGS: &str = "settings";
 
 #[derive(Clone, Serialize)]
 struct MenuOpen {
     files: Vec<files::FileInfo>,
+    settings: settings::Settings,
 }
 
 /// Collects the selection, places the popup next to the cursor and shows it.
@@ -44,24 +47,92 @@ fn open_menu(app: &AppHandle) {
         let _ = win.set_position(PhysicalPosition::new(x, y));
     }
 
-    let _ = app.emit_to(MENU, "menu:open", MenuOpen { files });
+    let settings = app.state::<settings::Store>().get(app);
+    let _ = app.emit_to(MENU, "menu:open", MenuOpen { files, settings });
     let _ = win.show();
     let _ = win.set_focus();
 }
 
 /// Starts the action on every selected file. Probing the inputs runs
-/// ffmpeg, so this stays off the main thread.
+/// ffmpeg, so this stays off the main thread. `options` comes from the
+/// action's submenu; without it the remembered or default options apply.
 #[tauri::command]
 async fn run_action(
     app: AppHandle,
     jobs: State<'_, Arc<jobs::Jobs>>,
+    store: State<'_, settings::Store>,
     action: String,
     paths: Vec<String>,
+    options: Option<recipes::Options>,
 ) -> Result<(), String> {
+    let current = store.get(&app);
+    let opts = current.options_for(&action, options);
+    if options.is_some() && current.remember && current.last.get(&action) != Some(&opts) {
+        let mut next = current;
+        next.last.insert(action.clone(), opts);
+        // Failing to remember a choice must not block the conversion.
+        match store.save(&app, next.clone()) {
+            Ok(()) => {
+                let _ = app.emit("settings", next);
+            }
+            Err(e) => eprintln!("settings: {e}"),
+        }
+    }
     let jobs = jobs.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || jobs.start(&app, &action, paths))
+    tauri::async_runtime::spawn_blocking(move || jobs.start(&app, &action, paths, &opts))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn get_settings(app: AppHandle, store: State<'_, settings::Store>) -> settings::Settings {
+    store.get(&app)
+}
+
+/// Saves the settings, re-registering the hotkey first when it changed so a
+/// combination taken by another program is rejected and nothing is saved.
+#[tauri::command]
+fn save_settings(app: AppHandle, store: State<'_, settings::Store>, next: settings::Settings) -> Result<(), String> {
+    let old = store.get(&app);
+    #[cfg(desktop)]
+    if next.hotkey != old.hotkey {
+        swap_hotkey(&app, &old.hotkey, &next.hotkey)?;
+    }
+    store.save(&app, next.clone())?;
+    let _ = app.emit("settings", next);
+    Ok(())
+}
+
+#[tauri::command]
+fn open_settings(app: AppHandle) {
+    show_settings(&app);
+}
+
+fn show_settings(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(SETTINGS) {
+        let _ = win.center();
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    }
+}
+
+#[cfg(desktop)]
+fn swap_hotkey(app: &AppHandle, old: &str, new: &str) -> Result<(), String> {
+    use std::str::FromStr;
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    let new_key = Shortcut::from_str(new).map_err(|_| "hotkey_invalid".to_string())?;
+    let gs = app.global_shortcut();
+    if let Ok(old_key) = Shortcut::from_str(old) {
+        let _ = gs.unregister(old_key);
+    }
+    gs.register(new_key).map_err(|_| {
+        // Put the previous combination back so the app stays reachable.
+        if let Ok(old_key) = Shortcut::from_str(old) {
+            let _ = gs.register(old_key);
+        }
+        "hotkey_taken".to_string()
+    })
 }
 
 #[tauri::command]
@@ -71,21 +142,14 @@ fn cancel_job(jobs: State<'_, Arc<jobs::Jobs>>, id: u64) {
 
 #[cfg(desktop)]
 fn setup_desktop(app: &mut tauri::App) -> tauri::Result<()> {
-    use tauri_plugin_global_shortcut::{
-        Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
-    };
+    use std::str::FromStr;
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-    // Ctrl+Alt+C on Windows/Linux, Cmd+Option+C on macOS.
-    #[cfg(target_os = "macos")]
-    let mods = Modifiers::SUPER | Modifiers::ALT;
-    #[cfg(not(target_os = "macos"))]
-    let mods = Modifiers::CONTROL | Modifiers::ALT;
-    let hotkey = Shortcut::new(Some(mods), Code::KeyC);
-
+    // Only the menu hotkey is ever registered, so any press opens the menu.
     app.handle().plugin(
         tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(move |app, shortcut, event| {
-                if shortcut == &hotkey && event.state() == ShortcutState::Pressed {
+            .with_handler(move |app, _shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
                     // Reading the selection spawns a process; keep it off the event loop.
                     let app = app.clone();
                     std::thread::spawn(move || open_menu(&app));
@@ -93,20 +157,27 @@ fn setup_desktop(app: &mut tauri::App) -> tauri::Result<()> {
             })
             .build(),
     )?;
-    if let Err(e) = app.global_shortcut().register(hotkey) {
+    let hotkey = app.state::<settings::Store>().get(app.handle()).hotkey;
+    let shortcut = Shortcut::from_str(&hotkey)
+        .or_else(|_| Shortcut::from_str(settings::DEFAULT_HOTKEY))
+        .expect("default hotkey parses");
+    if let Err(e) = app.global_shortcut().register(shortcut) {
         // Another program may own the combination; the tray still works.
         eprintln!("hotkey registration failed: {e}");
     }
 
+    let open = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Mutabor", true, None::<&str>)?;
-    let tray_menu = Menu::with_items(app, &[&quit])?;
+    let tray_menu = Menu::with_items(app, &[&open, &quit])?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle icon"))
         .tooltip("Mutabor")
         .menu(&tray_menu)
         .on_menu_event(|app, event| {
-            if event.id.as_ref() == "quit" {
-                app.exit(0);
+            match event.id.as_ref() {
+                "settings" => show_settings(app),
+                "quit" => app.exit(0),
+                _ => {}
             }
         })
         .build(app)?;
@@ -118,13 +189,20 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
     #[cfg(desktop)]
     {
-        // Must be registered first: a second launch just exits.
-        builder = builder.plugin(tauri_plugin_single_instance::init(|_, _, _| {}));
+        // Must be registered first: a second launch exits and opens the settings here.
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| show_settings(app)));
     }
     builder
         .plugin(tauri_plugin_opener::init())
         .manage(Arc::new(jobs::Jobs::default()))
-        .invoke_handler(tauri::generate_handler![run_action, cancel_job])
+        .manage(settings::Store::default())
+        .invoke_handler(tauri::generate_handler![
+            run_action,
+            cancel_job,
+            get_settings,
+            save_settings,
+            open_settings
+        ])
         .setup(|app| {
             #[cfg(desktop)]
             setup_desktop(app)?;

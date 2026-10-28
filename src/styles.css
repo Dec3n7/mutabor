@@ -135,10 +135,136 @@ main {
 }
 
 footer {
-  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 14px;
   border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 11px;
+}
+
+.gear {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.gear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Action rows: shortcut digit and the options arrow. */
+
+.side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.more {
+  width: 20px;
+  margin: -3px -4px -3px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.more:hover {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+/* Options submenu */
+
+.back {
+  display: block;
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.back:hover {
+  background: var(--hover);
+}
+
+.group {
+  border-radius: 6px;
+  padding: 0 0 8px;
+}
+
+.group.focused .section {
+  color: var(--accent);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+.chip {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--hover);
+}
+
+.chip.on {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.primary {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 10px 8px 4px;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary:hover {
+  filter: brightness(1.08);
 }
 
 /* Progress toast */
@@ -234,4 +360,96 @@ body.toast {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(128, 128, 128, 0.5);
+}
+
+/* Settings window */
+
+body.settings {
+  display: block;
+  height: auto;
+  min-height: 100vh;
+  padding: 20px 24px;
+  border: 0;
+  overflow-y: auto;
+  user-select: auto;
+}
+
+.settings h1 {
+  margin: 0 0 18px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.settings section {
+  margin-bottom: 20px;
+}
+
+.settings label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.settings .chips {
+  padding: 0;
+}
+
+.settings .line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.field {
+  min-width: 180px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+select.field option {
+  background: var(--bg);
+}
+
+.field:focus,
+.field.recording {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.field.recording {
+  color: var(--accent);
+}
+
+.note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.check input {
+  accent-color: var(--accent);
+}
+
+.settings footer {
+  flex-wrap: wrap;
+  padding: 12px 0 0;
+}
+
+#saved.bad {
+  color: #d14b4b;
 }

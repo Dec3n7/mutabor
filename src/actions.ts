@@ -16,19 +16,35 @@ export interface Action {
   target?: string;
   /** Extra search words besides the label. */
   keywords?: string;
-  /** Opens a settings submenu before running (not wired yet). */
-  configurable?: boolean;
+  /** Fields of the settings submenu (Shift+Enter); none means it runs as is. */
+  options?: Field[];
   /** Short button text for quick actions; the full label becomes a tooltip. */
   glyph?: string;
   /** Planned but not implemented yet; kept in the catalog, hidden from the menu. */
   soon?: boolean;
 }
 
-const convert = (ext: string, keywords = ""): Action => ({
+/** Submenu fields; values mirror `recipes::Options` on the Rust side. */
+export type Field = "quality" | "height" | "width" | "fps";
+export type Options = Partial<Record<"height" | "width" | "fps", number>> & { quality?: Quality };
+export type Quality = "high" | "normal" | "small";
+
+/** Choices per field, in display order. A size of 0 keeps the original. */
+export const CHOICES: Record<Field, (string | number)[]> = {
+  quality: ["high", "normal", "small"],
+  height: [0, 2160, 1080, 720, 480],
+  width: [0, 720, 480, 320],
+  fps: [24, 15, 12, 10],
+};
+
+const VIDEO: Field[] = ["quality", "height"];
+const QUALITY: Field[] = ["quality"];
+
+const convert = (ext: string, keywords = "", options?: Field[]): Action => ({
   id: `to_${ext}`,
   target: ext,
   keywords: `${ext} ${keywords}`,
-  configurable: true,
+  options,
 });
 
 /** One-click buttons shown above the list. */
@@ -43,44 +59,44 @@ export const QUICK: Partial<Record<Kind, Action[]>> = {
 
 export const ACTIONS: Record<Kind, Action[]> = {
   video: [
-    convert("gif", "анимация animation"),
-    { id: "extract_mp3", keywords: "mp3 audio звук", configurable: true },
-    convert("mp4"),
-    convert("webm"),
-    convert("mov"),
+    convert("gif", "анимация animation", ["width", "fps"]),
+    { id: "extract_mp3", keywords: "mp3 audio звук", options: QUALITY },
+    convert("mp4", "", VIDEO),
+    convert("webm", "", VIDEO),
+    convert("mov", "", VIDEO),
     convert("mkv"),
-    { id: "compress", keywords: "сжать size", configurable: true },
-    { id: "trim", keywords: "обрезать cut", configurable: true, soon: true },
-    { id: "resize", keywords: "размер 1080 720", configurable: true, soon: true },
+    { id: "compress", keywords: "сжать size", options: VIDEO },
+    { id: "trim", keywords: "обрезать cut", soon: true },
+    { id: "resize", keywords: "размер 1080 720", soon: true },
     { id: "preset_telegram", keywords: "telegram телеграм" },
     { id: "preset_discord", keywords: "discord дискорд" },
   ],
   audio: [
-    convert("mp3"),
-    convert("ogg", "voice голосовое"),
+    convert("mp3", "", QUALITY),
+    convert("ogg", "voice голосовое", QUALITY),
     convert("wav"),
     convert("flac"),
-    convert("m4a"),
-    convert("opus"),
+    convert("m4a", "", QUALITY),
+    convert("opus", "", QUALITY),
     { id: "normalize", keywords: "громкость loudness" },
   ],
   image: [
-    convert("jpg", "jpeg"),
+    convert("jpg", "jpeg", QUALITY),
     convert("png"),
-    convert("webp"),
-    convert("avif"),
+    convert("webp", "", QUALITY),
+    convert("avif", "", QUALITY),
     convert("ico", "icon иконка"),
     { ...convert("pdf"), soon: true },
-    { id: "resize", keywords: "размер", configurable: true, soon: true },
-    { id: "crop", keywords: "обрезать", configurable: true, soon: true },
-    { id: "compress", keywords: "сжать size", configurable: true },
+    { id: "resize", keywords: "размер", soon: true },
+    { id: "crop", keywords: "обрезать", soon: true },
+    { id: "compress", keywords: "сжать size", options: QUALITY },
     { id: "strip_meta", keywords: "exif gps метаданные" },
   ],
   pdf: [
-    { id: "pages_png", keywords: "png картинки images", configurable: true, soon: true },
-    { id: "pages_jpg", keywords: "jpg картинки images", configurable: true, soon: true },
+    { id: "pages_png", keywords: "png картинки images", soon: true },
+    { id: "pages_jpg", keywords: "jpg картинки images", soon: true },
     { id: "extract_text", keywords: "txt текст", soon: true },
-    { id: "compress", keywords: "сжать size", configurable: true, soon: true },
+    { id: "compress", keywords: "сжать size", soon: true },
   ],
   markup: ["md", "html", "epub", "fb2", "txt"].map((e) => ({ ...convert(e, e === "md" ? "markdown" : ""), soon: true })),
   unknown: [],
@@ -120,4 +136,17 @@ export function suggest(files: FileInfo[]): string | undefined {
   if (all((f) => f.ext === "heic" || f.ext === "heif")) return "to_jpg";
   if (all((f) => f.ext === "ogg" || f.ext === "oga" || f.ext === "opus")) return "to_mp3";
   if (all((f) => f.kind === "video" && f.size > 500 * MB)) return "compress";
+}
+
+/** Submenu starting values: what the Rust side would use without a choice. */
+export function defaultOptions(a: Action, files: FileInfo[], quality: Quality): Options {
+  const video = files.some((f) => f.kind === "video");
+  const o: Options = {};
+  for (const f of a.options ?? []) {
+    if (f === "quality") o.quality = a.id === "compress" ? "small" : quality;
+    if (f === "height") o.height = a.id === "compress" && video ? 1080 : 0;
+    if (f === "width") o.width = 480;
+    if (f === "fps") o.fps = 12;
+  }
+  return o;
 }

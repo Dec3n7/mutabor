@@ -1,8 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Action, FileInfo, actionsFor, notSupportedYet, quickFor, suggest } from "./actions";
-import { formatSize, t } from "./i18n";
+import {
+  Action,
+  CHOICES,
+  Field,
+  FileInfo,
+  Options,
+  actionsFor,
+  defaultOptions,
+  notSupportedYet,
+  quickFor,
+  suggest,
+} from "./actions";
+import { formatSize, setLanguage, t } from "./i18n";
+import { DEFAULT_SETTINGS, Settings } from "./prefs";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -12,10 +24,15 @@ const quick = $<HTMLElement>("#quick");
 const list = $<HTMLElement>("#list");
 const search = $<HTMLInputElement>("#search");
 const status = $<HTMLElement>("#status");
+const gear = $<HTMLButtonElement>("#gear");
 
 let files: FileInfo[] = [];
+let settings: Settings = DEFAULT_SETTINGS;
 let visible: Action[] = [];
 let selected = 0;
+
+/** The options submenu, when open: its action, choices and focused field. */
+let config: { action: Action; opts: Options; field: number } | null = null;
 
 function matches(a: Action, query: string): boolean {
   const hay = `${t(a.id)} ${a.keywords ?? ""}`.toLowerCase();
@@ -74,7 +91,18 @@ function renderList() {
       const idx = i++;
       const row = el("div", "row" + (idx === selected ? " active" : ""));
       row.append(el("span", "label", t(a.id)));
-      row.append(el("span", "key", idx < 9 ? String(idx + 1) : ""));
+      const side = el("span", "side");
+      side.append(el("span", "key", idx < 9 ? String(idx + 1) : ""));
+      if (a.options?.length) {
+        const more = el("button", "more", "›");
+        more.title = t("options_of", { name: t(a.id) });
+        more.onclick = (e) => {
+          e.stopPropagation();
+          openConfig(a);
+        };
+        side.append(more);
+      } else side.append(el("span", "more"));
+      row.append(side);
       row.onmouseenter = () => select(idx);
       row.onclick = () => run(a);
       list.append(row);
@@ -94,9 +122,73 @@ function select(idx: number) {
   else rows[selected]?.scrollIntoView({ block: "nearest" });
 }
 
-async function run(a: Action) {
+function choiceLabel(field: Field, v: string | number): string {
+  if (field === "quality") return t(`q_${v}`);
+  if (v === 0) return t("original");
+  if (field === "height") return v === 2160 ? "4K" : `${v}p`;
+  if (field === "width") return `${v} px`;
+  return String(v);
+}
+
+function openConfig(a: Action) {
+  const remembered = settings.remember ? settings.last[a.id] : undefined;
+  config = { action: a, opts: { ...defaultOptions(a, files, settings.quality), ...remembered }, field: 0 };
+  search.hidden = true;
+  quick.hidden = true;
+  status.textContent = t("hint_options");
+  renderConfig();
+}
+
+function closeConfig() {
+  config = null;
+  search.hidden = false;
+  quick.hidden = false;
+  status.textContent = t("hint");
+  renderList();
+  search.focus();
+}
+
+function renderConfig() {
+  if (!config) return;
+  const { action, opts, field } = config;
+  list.replaceChildren();
+  const back = el("button", "back", `‹ ${t("options_of", { name: t(action.id) })}`);
+  back.onclick = closeConfig;
+  list.append(back);
+  action.options!.forEach((f, i) => {
+    const group = el("div", "group" + (i === field ? " focused" : ""));
+    group.append(el("div", "section", t(`opt_${f}`)));
+    const chips = el("div", "chips");
+    for (const v of CHOICES[f]) {
+      const chip = el("button", "chip" + (opts[f] === v ? " on" : ""), choiceLabel(f, v));
+      chip.onclick = () => {
+        (opts as Record<string, unknown>)[f] = v;
+        config!.field = i;
+        renderConfig();
+      };
+      chips.append(chip);
+    }
+    group.append(chips);
+    list.append(group);
+  });
+  const go = el("button", "primary", `${t("run")}  ↵`);
+  go.onclick = () => run(action, opts);
+  list.append(go);
+}
+
+/** ←/→ on the focused field of the submenu. */
+function step(dir: number) {
+  if (!config) return;
+  const f = config.action.options![config.field];
+  const values = CHOICES[f];
+  const at = values.indexOf(config.opts[f] as string | number);
+  (config.opts as Record<string, unknown>)[f] = values[(at + dir + values.length) % values.length];
+  renderConfig();
+}
+
+async function run(a: Action, options?: Options) {
   try {
-    await invoke("run_action", { action: a.id, paths: files.map((f) => f.path) });
+    await invoke("run_action", { action: a.id, paths: files.map((f) => f.path), options: options ?? null });
     await hide();
   } catch (err) {
     const code = String(err);
@@ -109,33 +201,60 @@ async function hide() {
   if (inTauri) await getCurrentWindow().hide();
 }
 
-function open(next: FileInfo[]) {
+function open(next: FileInfo[], prefs: Settings) {
   files = next;
+  settings = prefs;
+  setLanguage(prefs.language);
+  search.placeholder = t("search");
+  gear.title = t("settings");
   selected = 0;
   search.value = "";
+  config = null;
+  search.hidden = false;
+  quick.hidden = false;
   status.textContent = t("hint");
   renderHeader();
   renderList();
   search.focus();
 }
 
-search.placeholder = t("search");
 search.addEventListener("input", () => {
   selected = 0;
   renderList();
 });
 
+gear.onclick = () => {
+  if (inTauri) invoke("open_settings");
+};
+
+function configKeys(e: KeyboardEvent) {
+  const n = config!.action.options!.length;
+  if (e.key === "Escape" || e.key === "Backspace" || (e.key === "ArrowLeft" && e.altKey)) closeConfig();
+  else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    config!.field = (config!.field + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
+    renderConfig();
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") step(e.key === "ArrowRight" ? 1 : -1);
+  else if (e.key === "Enter") run(config!.action, config!.opts);
+  else return;
+  e.preventDefault();
+}
+
 document.addEventListener("keydown", (e) => {
+  if (config) return configKeys(e);
+  const current = visible[selected];
+  const caretAtEnd = search.selectionStart === search.value.length;
   if (e.key === "Escape") {
     e.preventDefault();
     hide();
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     select(selected + (e.key === "ArrowDown" ? 1 : -1));
-  } else if (e.key === "Enter" && visible[selected]) {
+  } else if (current?.options?.length && ((e.key === "Enter" && e.shiftKey) || (e.key === "ArrowRight" && caretAtEnd))) {
     e.preventDefault();
-    // TODO: Shift+Enter opens the quality settings submenu.
-    run(visible[selected]);
+    openConfig(current);
+  } else if (e.key === "Enter" && current) {
+    e.preventDefault();
+    run(current);
   } else if (/^[1-9]$/.test(e.key) && search.value === "") {
     const a = visible[Number(e.key) - 1];
     if (a) {
@@ -146,7 +265,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 if (inTauri) {
-  listen<{ files: FileInfo[] }>("menu:open", (e) => open(e.payload.files));
+  listen<{ files: FileInfo[]; settings: Settings }>("menu:open", (e) => open(e.payload.files, e.payload.settings));
 } else {
   // Plain browser (npm run dev): sample data for working on the layout.
   const demo: Record<string, FileInfo[]> = {
@@ -158,5 +277,8 @@ if (inTauri) {
     ],
     none: [],
   };
-  open(demo[new URLSearchParams(location.search).get("demo") ?? "video"] ?? []);
+  const params = new URLSearchParams(location.search);
+  open(demo[params.get("demo") ?? "video"] ?? [], DEFAULT_SETTINGS);
+  const opts = visible.find((a) => a.id === params.get("options"));
+  if (opts) openConfig(opts);
 }

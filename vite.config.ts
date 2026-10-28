@@ -10,10 +10,10 @@ export default defineConfig(() => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
-  // Two pages: the popup menu and the progress toast.
+  // Pages: the popup menu, the progress toast and the settings window.
   build: {
     rollupOptions: {
-      input: { menu: "index.html", toast: "toast.html" },
+      input: { menu: "index.html", toast: "toast.html", settings: "settings.html" },
     },
   },
   // 2. tauri expects a fixed port, fail if that port is not available

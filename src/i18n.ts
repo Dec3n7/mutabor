@@ -45,7 +45,19 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   suggested: { ru: "Подсказка", en: "Suggested" },
   all_actions: { ru: "Действия", en: "Actions" },
   search: { ru: "Поиск действия…", en: "Search actions…" },
-  hint: { ru: "↑↓ Enter · 1–9 · Esc", en: "↑↓ Enter · 1–9 · Esc" },
+  hint: { ru: "↑↓ Enter · ⇧Enter — параметры · Esc", en: "↑↓ Enter · ⇧Enter options · Esc" },
+  hint_options: { ru: "↑↓ ←→ · Enter — запустить · Esc — назад", en: "↑↓ ←→ · Enter run · Esc back" },
+  options_of: { ru: "Параметры: {name}", en: "Options: {name}" },
+  run: { ru: "Запустить", en: "Run" },
+  opt_quality: { ru: "Качество", en: "Quality" },
+  opt_height: { ru: "Разрешение", en: "Resolution" },
+  opt_width: { ru: "Ширина", en: "Width" },
+  opt_fps: { ru: "Кадров в секунду", en: "Frames per second" },
+  q_high: { ru: "Лучше", en: "Best" },
+  q_normal: { ru: "Обычное", en: "Normal" },
+  q_small: { ru: "Меньше файл", en: "Smaller" },
+  original: { ru: "Как есть", en: "Original" },
+  settings: { ru: "Настройки", en: "Settings" },
   files_n: { ru: "Файлов: {n}", en: "{n} files" },
   nothing_selected: {
     ru: "Выделите файл в Проводнике или Finder и нажмите хоткей ещё раз.",
@@ -66,9 +78,51 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   cancelled: { ru: "Отменено", en: "Cancelled" },
   failed: { ru: "Ошибка конвертации", en: "Conversion failed" },
   show_in_folder: { ru: "Показать в папке", en: "Show in folder" },
+
+  // Settings window
+  s_title: { ru: "Настройки Mutabor", en: "Mutabor settings" },
+  s_hotkey: { ru: "Сочетание клавиш", en: "Hotkey" },
+  s_hotkey_note: {
+    ru: "Открывает меню для файлов, выделенных в Проводнике или Finder.",
+    en: "Opens the menu for the files selected in Explorer or Finder.",
+  },
+  s_hotkey_press: { ru: "Нажмите сочетание… (Esc — отмена)", en: "Press a combination… (Esc cancels)" },
+  s_hotkey_reset: { ru: "По умолчанию", en: "Default" },
+  s_hotkey_need_mod: {
+    ru: "Нужен хотя бы один из Ctrl, Alt, Win/⌘ и обычная клавиша.",
+    en: "Use at least one of Ctrl, Alt, Win/⌘ plus a regular key.",
+  },
+  hotkey_taken: {
+    ru: "Это сочетание занято другой программой.",
+    en: "Another program already uses this combination.",
+  },
+  hotkey_invalid: { ru: "Такое сочетание не поддерживается.", en: "This combination isn't supported." },
+  s_language: { ru: "Язык", en: "Language" },
+  s_lang_auto: { ru: "Как в системе", en: "System" },
+  s_quality: { ru: "Качество по умолчанию", en: "Default quality" },
+  s_quality_note: {
+    ru: "Для конвертации без открытия параметров. «Сжать» всегда стремится к меньшему файлу.",
+    en: "Used when you run an action without opening its options. Compress always aims small.",
+  },
+  s_remember: { ru: "Запоминать параметры, выбранные для действия", en: "Remember the options chosen for each action" },
+  s_forget: { ru: "Забыть выбранное ({n})", en: "Forget saved choices ({n})" },
+  s_saved: { ru: "Сохранено", en: "Saved" },
+  s_save_failed: { ru: "Не удалось сохранить: {msg}", en: "Couldn't save: {msg}" },
+  s_about: {
+    ru: "Mutabor {v} · GPL-3.0 · работает без интернета и ничего не отправляет.",
+    en: "Mutabor {v} · GPL-3.0 · works offline and sends nothing.",
+  },
+  s_source: { ru: "Исходный код", en: "Source code" },
 };
 
-const lang: Lang = navigator.language.toLowerCase().startsWith("ru") ? "ru" : "en";
+const systemLang: Lang = navigator.language.toLowerCase().startsWith("ru") ? "ru" : "en";
+let lang: Lang = systemLang;
+
+/** Applies the language setting: "auto" follows the system. */
+export function setLanguage(pref: string) {
+  lang = pref === "ru" || pref === "en" ? pref : systemLang;
+  document.documentElement.lang = lang;
+}
 
 export function t(key: string, vars: Record<string, string | number> = {}): string {
   const s = STRINGS[key]?.[lang] ?? key;

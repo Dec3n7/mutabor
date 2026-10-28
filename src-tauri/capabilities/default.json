@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the popup menu and the progress toast",
+  "description": "Permissions for the popup menu, the progress toast and the settings window",
   "windows": [
     "menu",
-    "toast"
+    "toast",
+    "settings"
   ],
   "permissions": [
     "core:default",

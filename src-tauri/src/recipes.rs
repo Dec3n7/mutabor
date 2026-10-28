@@ -1,5 +1,41 @@
 //! Maps a menu action to ffmpeg arguments. Pure functions, no I/O.
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Quality {
+    High,
+    #[default]
+    Normal,
+    Small,
+}
+
+impl Quality {
+    /// Picks the value for this quality from a (high, normal, small) triple.
+    fn pick<T>(self, high: T, normal: T, small: T) -> T {
+        match self {
+            Quality::High => high,
+            Quality::Normal => normal,
+            Quality::Small => small,
+        }
+    }
+}
+
+/// User choices from the action's settings submenu. Missing fields fall back
+/// to the action's own defaults; a size of 0 means "keep the original".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Options {
+    pub quality: Option<Quality>,
+    /// Maximum video height in pixels.
+    pub height: Option<u32>,
+    /// Maximum GIF width in pixels.
+    pub width: Option<u32>,
+    /// GIF frame rate.
+    pub fps: Option<u32>,
+}
+
 /// What to run for one input file.
 #[derive(Debug, PartialEq)]
 pub struct Plan {
@@ -40,11 +76,20 @@ impl Probe {
     }
 }
 
-const GIF_FILTER: &str = "fps=12,scale='min(480,iw)':-2:flags=lanczos,split[a][b];\
-                          [a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5";
-/// Caps height at `h` and keeps both sides even, as H.264 requires.
+fn gif_filter(width: u32, fps: u32) -> String {
+    let scale = if width == 0 { "iw".to_string() } else { format!("'min({width},iw)'") };
+    format!(
+        "fps={fps},scale={scale}:-2:flags=lanczos,split[a][b];\
+         [a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5"
+    )
+}
+/// Caps height at `h` (0 = original) and keeps both sides even, as H.264 requires.
 fn fit_height(h: u32) -> String {
-    format!("scale=-2:'min({h},trunc(ih/2)*2)'")
+    if h == 0 {
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2".into()
+    } else {
+        format!("scale=-2:'min({h},trunc(ih/2)*2)'")
+    }
 }
 const DISCORD_LIMIT_BYTES: f64 = 10.0 * 1024.0 * 1024.0;
 const DISCORD_AUDIO_KBPS: f64 = 96.0;
@@ -74,34 +119,59 @@ const NEEDS_AUDIO: &[&str] = &[
     "extract_mp3", "to_mp3", "to_ogg", "to_wav", "to_flac", "to_m4a", "to_opus", "normalize",
 ];
 
-pub fn plan(action: &str, input_ext: &str, probe: Probe) -> Result<Plan, PlanError> {
+/// The quality an action uses when the user picked none: compressing aims
+/// small, lossy edits (rotate, flip) keep as much detail as possible.
+pub fn default_quality(action: &str) -> Quality {
+    match action {
+        "compress" => Quality::Small,
+        "rotate_left" | "rotate_right" | "flip_h" | "flip_v" | "strip_meta" => Quality::High,
+        _ => Quality::Normal,
+    }
+}
+
+/// H.264 for MP4/MOV at the given quality and height cap.
+fn h264_at(q: Quality, height: u32) -> Vec<String> {
+    h264(q.pick("18", "22", "28"), &fit_height(height), q.pick("192k", "160k", "128k"))
+}
+
+fn mp3(q: Quality) -> Vec<String> {
+    args(&["-vn", "-c:a", "libmp3lame", "-q:a", q.pick("0", "2", "6")])
+}
+
+pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Result<Plan, PlanError> {
     if NEEDS_AUDIO.contains(&action) && !probe.has_audio {
         return Err(PlanError::NoAudio);
     }
+    let q = opts.quality.unwrap_or_else(|| default_quality(action));
     if crate::files::kind_of(input_ext) == crate::files::Kind::Image {
-        return image_plan(action, input_ext);
+        return image_plan(action, input_ext, q);
     }
     let duration = probe.duration;
-    let even = "scale=trunc(iw/2)*2:trunc(ih/2)*2";
+    let height = opts.height.unwrap_or(0);
     match action {
         // Video
-        "to_gif" => plan_of("gif", "", args(&["-vf", GIF_FILTER, "-loop", "0"])),
-        "extract_mp3" => plan_of("mp3", "", args(&["-vn", "-c:a", "libmp3lame", "-q:a", "2"])),
-        "to_mp4" => plan_of("mp4", "", h264("20", even, "160k")),
-        "to_mov" => plan_of("mov", "", h264("20", even, "160k")),
-        "to_webm" => plan_of(
-            "webm",
-            "",
-            args(&[
-                "-map", "0:v:0", "-map", "0:a:0?",
-                "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-row-mt", "1",
-                "-c:a", "libopus", "-b:a", "128k",
-            ]),
-        ),
+        "to_gif" => {
+            let filter = gif_filter(opts.width.unwrap_or(480), opts.fps.unwrap_or(12).clamp(1, 50));
+            plan_of("gif", "", vec!["-vf".into(), filter, "-loop".into(), "0".into()])
+        }
+        "extract_mp3" => plan_of("mp3", "", mp3(q)),
+        "to_mp4" => plan_of("mp4", "", h264_at(q, height)),
+        "to_mov" => plan_of("mov", "", h264_at(q, height)),
+        "to_webm" => {
+            let mut a = args(&["-map", "0:v:0", "-map", "0:a:0?"]);
+            if height > 0 {
+                a.extend(["-vf".into(), fit_height(height)]);
+            }
+            a.extend(args(&[
+                "-c:v", "libvpx-vp9", "-crf", q.pick("28", "32", "40"), "-b:v", "0", "-row-mt", "1",
+                "-c:a", "libopus", "-b:a", q.pick("160k", "128k", "96k"),
+            ]));
+            plan_of("webm", "", a)
+        }
         // MKV holds nearly any codec, so a lossless remux is enough.
         "to_mkv" => plan_of("mkv", "", args(&["-map", "0", "-c", "copy"])),
         "compress" if is_video(input_ext) => {
-            plan_of("mp4", "_compressed", h264("28", &fit_height(1080), "128k"))
+            plan_of("mp4", "_compressed", h264_at(q, opts.height.unwrap_or(1080)))
         }
         "preset_telegram" => plan_of("mp4", "_telegram", h264("23", &fit_height(1080), "160k")),
         "preset_discord" => {
@@ -124,12 +194,12 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe) -> Result<Plan, PlanErr
         }
 
         // Audio. `-vn` drops cover art, which several containers reject.
-        "to_mp3" => plan_of("mp3", "", args(&["-vn", "-c:a", "libmp3lame", "-q:a", "2"])),
-        "to_ogg" => plan_of("ogg", "", args(&["-vn", "-c:a", "libvorbis", "-q:a", "5"])),
+        "to_mp3" => plan_of("mp3", "", mp3(q)),
+        "to_ogg" => plan_of("ogg", "", args(&["-vn", "-c:a", "libvorbis", "-q:a", q.pick("7", "5", "3")])),
         "to_wav" => plan_of("wav", "", args(&["-vn", "-c:a", "pcm_s16le"])),
         "to_flac" => plan_of("flac", "", args(&["-vn", "-c:a", "flac"])),
-        "to_m4a" => plan_of("m4a", "", args(&["-vn", "-c:a", "aac", "-b:a", "192k"])),
-        "to_opus" => plan_of("opus", "", args(&["-vn", "-c:a", "libopus", "-b:a", "128k"])),
+        "to_m4a" => plan_of("m4a", "", args(&["-vn", "-c:a", "aac", "-b:a", q.pick("256k", "192k", "128k")])),
+        "to_opus" => plan_of("opus", "", args(&["-vn", "-c:a", "libopus", "-b:a", q.pick("160k", "128k", "80k")])),
         "normalize" => plan_of(
             input_ext,
             "_normalized",
@@ -162,24 +232,23 @@ fn encode_image(ext: &str, input_ext: &str, filters: &[&str], quality: Quality) 
     match ext {
         "jpg" => {
             chain.extend([FLATTEN, "format=yuvj444p"]);
-            let q = if quality == Quality::Small { "6" } else { "2" };
-            a.extend(args(&["-c:v", "mjpeg", "-q:v", q]));
+            a.extend(args(&["-c:v", "mjpeg", "-q:v", quality.pick("2", "3", "6")]));
         }
+        // PNG is lossless: quality only trades encoding time for size.
         "png" => {
-            let level = if quality == Quality::Small { "9" } else { "6" };
+            let level = quality.pick("6", "6", "9");
             a.extend(args(&["-c:v", "png", "-pred", "mixed", "-compression_level", level]));
         }
         "webp" => {
-            let q = if quality == Quality::Small { "70" } else { "88" };
             let codec = if animated { "libwebp_anim" } else { "libwebp" };
-            a.extend(args(&["-c:v", codec, "-quality", q]));
+            a.extend(args(&["-c:v", codec, "-quality", quality.pick("92", "85", "70")]));
             if animated {
                 a.extend(args(&["-loop", "0"]));
             }
         }
         "avif" => {
             chain.push(FLATTEN);
-            let crf = if quality == Quality::Small { "40" } else { "28" };
+            let crf = quality.pick("22", "28", "40");
             a.extend(args(&["-c:v", "libaom-av1", "-still-picture", "1", "-cpu-used", "6", "-crf", crf]));
         }
         "bmp" => a.extend(args(&["-c:v", "bmp"])),
@@ -209,31 +278,25 @@ fn encode_image(ext: &str, input_ext: &str, filters: &[&str], quality: Quality) 
     Ok(out)
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Quality {
-    High,
-    Small,
-}
-
-fn image_plan(action: &str, input_ext: &str) -> Result<Plan, PlanError> {
+fn image_plan(action: &str, input_ext: &str, quality: Quality) -> Result<Plan, PlanError> {
     // No SVG decoder in ffmpeg; SVG arrives with the libvips engine.
     if input_ext == "svg" {
         return Err(PlanError::NotReady);
     }
     let same = writable_ext(input_ext);
-    let (ext, suffix, filters, quality): (&str, &'static str, &[&str], Quality) = match action {
-        "to_jpg" => ("jpg", "", &[], Quality::High),
-        "to_png" => ("png", "", &[], Quality::High),
-        "to_webp" => ("webp", "", &[], Quality::High),
-        "to_avif" => ("avif", "", &[], Quality::High),
-        "to_ico" => ("ico", "", &[], Quality::High),
-        "rotate_left" => (same, "_rotated", &["transpose=2"], Quality::High),
-        "rotate_right" => (same, "_rotated", &["transpose=1"], Quality::High),
-        "flip_h" => (same, "_flipped", &["hflip"], Quality::High),
-        "flip_v" => (same, "_flipped", &["vflip"], Quality::High),
-        "compress" => (same, "_compressed", &[], Quality::Small),
-        "strip_meta" => (same, "_clean", &[], Quality::High),
-        // to_pdf, resize and crop need libvips or a settings submenu.
+    let (ext, suffix, filters): (&str, &'static str, &[&str]) = match action {
+        "to_jpg" => ("jpg", "", &[]),
+        "to_png" => ("png", "", &[]),
+        "to_webp" => ("webp", "", &[]),
+        "to_avif" => ("avif", "", &[]),
+        "to_ico" => ("ico", "", &[]),
+        "rotate_left" => (same, "_rotated", &["transpose=2"]),
+        "rotate_right" => (same, "_rotated", &["transpose=1"]),
+        "flip_h" => (same, "_flipped", &["hflip"]),
+        "flip_v" => (same, "_flipped", &["vflip"]),
+        "compress" => (same, "_compressed", &[]),
+        "strip_meta" => (same, "_clean", &[]),
+        // to_pdf, resize and crop need libvips or more submenu fields.
         _ => return Err(PlanError::NotReady),
     };
     plan_of(ext, suffix, encode_image(ext, input_ext, filters, quality)?)
@@ -267,8 +330,8 @@ mod tests {
         let silent = "  Duration: 00:00:02.87, start: 0.000000\n  Stream #0:0[0x1](und): Video: h264 (Main), yuv420p, 960x720";
         let p = Probe::parse(silent);
         assert!(!p.has_audio);
-        assert_eq!(plan("extract_mp3", "mp4", p), Err(PlanError::NoAudio));
-        assert!(plan("to_gif", "mp4", p).is_ok());
+        assert_eq!(plan("extract_mp3", "mp4", p, &Options::default()), Err(PlanError::NoAudio));
+        assert!(plan("to_gif", "mp4", p, &Options::default()).is_ok());
         let with_audio = format!("{silent}\n  Stream #0:1[0x2](und): Audio: aac (LC), 44100 Hz, stereo");
         assert!(Probe::parse(&with_audio).has_audio);
     }
@@ -282,13 +345,13 @@ mod tests {
 
     #[test]
     fn discord_fits_budget() {
-        let p = plan("preset_discord", "mp4", probe(60.0)).unwrap();
+        let p = plan("preset_discord", "mp4", probe(60.0), &Options::default()).unwrap();
         let i = p.args.iter().position(|a| a == "-b:v").unwrap();
         let kbps: f64 = p.args[i + 1].trim_end_matches('k').parse().unwrap();
         let bytes = (kbps + DISCORD_AUDIO_KBPS) * 1000.0 / 8.0 * 60.0;
         assert!(bytes < DISCORD_LIMIT_BYTES);
         let unknown = Probe { duration: None, has_audio: true };
-        assert_eq!(plan("preset_discord", "mp4", unknown), Err(PlanError::NeedsDuration));
+        assert_eq!(plan("preset_discord", "mp4", unknown, &Options::default()), Err(PlanError::NeedsDuration));
     }
 
     /// Runs every ffmpeg recipe on generated samples.
@@ -339,7 +402,7 @@ mod tests {
         ];
         for (input, ext, actions) in cases {
             for action in actions {
-                let p = plan(action, ext, probe(3.0)).unwrap();
+                let p = plan(action, ext, probe(3.0), &Options::default()).unwrap();
                 let stem = input.file_stem().unwrap().to_string_lossy();
                 let out = dir.join(format!("{stem}_{action}{}.{}", p.suffix, p.ext));
                 let mut args = vec!["-i".to_string(), input.to_string_lossy().into_owned()];
@@ -373,14 +436,39 @@ mod tests {
     }
 
     #[test]
+    fn options_change_args() {
+        let has = |p: &Plan, pair: [&str; 2]| p.args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+        let none = Probe::default();
+        let opts = |quality, height| Options { quality: Some(quality), height, ..Default::default() };
+
+        let small = plan("to_mp4", "mkv", none, &opts(Quality::Small, Some(720))).unwrap();
+        assert!(has(&small, ["-crf", "28"]));
+        assert!(small.args.iter().any(|a| a.contains("min(720,")));
+        // Video compression defaults to small and 1080p; conversions keep the size.
+        assert!(has(&plan("compress", "mp4", none, &Options::default()).unwrap(), ["-crf", "28"]));
+        assert!(!plan("to_mp4", "mkv", none, &Options::default()).unwrap().args.iter().any(|a| a.contains("min(")));
+
+        let gif = plan("to_gif", "mp4", none, &Options { width: Some(0), fps: Some(24), ..Default::default() }).unwrap();
+        assert!(gif.args[1].starts_with("fps=24,scale=iw:"));
+
+        assert!(has(&plan("to_jpg", "png", none, &opts(Quality::High, None)).unwrap(), ["-q:v", "2"]));
+        assert!(has(&plan("compress", "jpg", none, &Options::default()).unwrap(), ["-q:v", "6"]));
+        assert!(has(&plan("to_mp3", "wav", probe(1.0), &opts(Quality::High, None)).unwrap(), ["-q:a", "0"]));
+
+        // The frontend sends lowercase names and may omit any field.
+        let parsed: Options = serde_json::from_str(r#"{"quality":"small","height":480}"#).unwrap();
+        assert_eq!(parsed, opts(Quality::Small, Some(480)));
+    }
+
+    #[test]
     fn unsupported_yet() {
         let none = Probe::default();
-        assert_eq!(plan("to_pdf", "png", none), Err(PlanError::NotReady));
-        assert_eq!(plan("resize", "jpg", none), Err(PlanError::NotReady));
-        assert_eq!(plan("to_png", "svg", none), Err(PlanError::NotReady));
-        assert_eq!(plan("normalize", "flac", probe(1.0)).unwrap().ext, "flac");
+        assert_eq!(plan("to_pdf", "png", none, &Options::default()), Err(PlanError::NotReady));
+        assert_eq!(plan("resize", "jpg", none, &Options::default()), Err(PlanError::NotReady));
+        assert_eq!(plan("to_png", "svg", none, &Options::default()), Err(PlanError::NotReady));
+        assert_eq!(plan("normalize", "flac", probe(1.0), &Options::default()).unwrap().ext, "flac");
         // HEIC cannot be written back, so edits land in JPG.
-        assert_eq!(plan("rotate_left", "heic", none).unwrap().ext, "jpg");
-        assert_eq!(plan("flip_h", "png", none).unwrap().suffix, "_flipped");
+        assert_eq!(plan("rotate_left", "heic", none, &Options::default()).unwrap().ext, "jpg");
+        assert_eq!(plan("flip_h", "png", none, &Options::default()).unwrap().suffix, "_flipped");
     }
 }

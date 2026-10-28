@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <title>Mutabor</title>
+    <script type="module" src="/src/settings.ts" defer></script>
+  </head>
+  <body class="settings">
+    <h1 data-t="s_title"></h1>
+
+    <section>
+      <label data-t="s_hotkey"></label>
+      <div class="line">
+        <button id="hotkey" class="field"></button>
+        <button id="hotkey-reset" class="link" data-t="s_hotkey_reset"></button>
+      </div>
+      <p class="note" id="hotkey-note" data-t="s_hotkey_note"></p>
+    </section>
+
+    <section>
+      <label for="language" data-t="s_language"></label>
+      <select id="language" class="field">
+        <option value="auto" data-t="s_lang_auto"></option>
+        <option value="ru">Русский</option>
+        <option value="en">English</option>
+      </select>
+    </section>
+
+    <section>
+      <label data-t="s_quality"></label>
+      <div class="chips" id="quality"></div>
+      <p class="note" data-t="s_quality_note"></p>
+    </section>
+
+    <section>
+      <label class="check"><input type="checkbox" id="remember" /> <span data-t="s_remember"></span></label>
+      <button id="forget" class="link"></button>
+    </section>
+
+    <footer>
+      <span id="about"></span>
+      <span id="saved"></span>
+    </footer>
+  </body>
+</html>

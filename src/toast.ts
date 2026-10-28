@@ -2,7 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { formatSize, t } from "./i18n";
+import { formatSize, setLanguage, t } from "./i18n";
+import type { Settings } from "./prefs";
 
 type JobEvent =
   | { state: "started"; id: number; name: string }
@@ -113,6 +114,8 @@ document.body.addEventListener("mouseleave", () => {
 });
 
 if (inTauri) {
+  invoke<Settings>("get_settings").then((s) => setLanguage(s.language));
+  listen<Settings>("settings", (e) => setLanguage(e.payload.language));
   listen<JobEvent>("job", (e) => handle(e.payload));
 } else {
   // Plain browser (npm run dev): sample jobs for working on the layout.

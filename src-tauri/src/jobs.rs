@@ -1,7 +1,7 @@
 //! Runs conversions as ffmpeg child processes and reports progress to the
 //! toast window through events.
 
-use crate::recipes::{self, PlanError, Probe};
+use crate::recipes::{self, Options, PlanError, Probe};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader};
@@ -90,11 +90,17 @@ fn show_toast(app: &AppHandle) {
 
 impl Jobs {
     /// Starts one job per input. Errors only when no job could start.
-    pub fn start(self: &Arc<Self>, app: &AppHandle, action: &str, inputs: Vec<String>) -> Result<(), String> {
+    pub fn start(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        action: &str,
+        inputs: Vec<String>,
+        opts: &Options,
+    ) -> Result<(), String> {
         let mut started = 0;
         let mut last_err = String::new();
         for input in inputs {
-            match self.start_one(app, action, PathBuf::from(input)) {
+            match self.start_one(app, action, PathBuf::from(input), opts) {
                 Ok(()) => started += 1,
                 Err(e) => last_err = e,
             }
@@ -102,14 +108,20 @@ impl Jobs {
         if started == 0 { Err(last_err) } else { Ok(()) }
     }
 
-    fn start_one(self: &Arc<Self>, app: &AppHandle, action: &str, input: PathBuf) -> Result<(), String> {
+    fn start_one(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        action: &str,
+        input: PathBuf,
+        opts: &Options,
+    ) -> Result<(), String> {
         let ext = input
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
         let probe = probe(&input);
         let duration = probe.duration;
-        let plan = recipes::plan(action, &ext, probe).map_err(|e| match e {
+        let plan = recipes::plan(action, &ext, probe, opts).map_err(|e| match e {
             PlanError::NotReady => "not_ready".to_string(),
             PlanError::NeedsDuration => "no_duration".to_string(),
             PlanError::NoAudio => "no_audio".to_string(),
