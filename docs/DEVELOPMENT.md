@@ -44,13 +44,17 @@ CI runs the same on Windows, macOS and Linux for every push.
   toast and clean up partial results.
 - **Engines.** ffmpeg 9.0.2 is bundled as a sidecar called `mutabor-ffmpeg`
   (so the Linux package does not clash with a system ffmpeg). SVG is drawn by
-  [resvg](https://github.com/linebender/resvg), compiled in. MuPDF and Pandoc
+  [resvg](https://github.com/linebender/resvg), compiled in. The other engines
   are optional and downloaded on first use:
 
   | Engine | Version | License | Download | Systems |
   | --- | --- | --- | --- | --- |
   | [MuPDF](https://mupdf.com) | 1.28.5 | AGPL-3.0 | 90 MB | Windows (no official macOS or Linux build) |
   | [Pandoc](https://pandoc.org) | 3.13 | GPL-2.0-or-later | 27–43 MB | Windows, macOS, Linux |
+  | [7-Zip](https://www.7-zip.org) | 26.05 | LGPL-2.1-or-later with the unRAR restriction | 1–2 MB | Windows, macOS, Linux |
+  | [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) | 0.2.5.0 | BSD-3-Clause | 43–49 MB | Windows, macOS, Linux (needs a Vulkan graphics card) |
+  | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) | b5454 | MIT | 9–10 MB + 181 MB model | Windows, Linux |
+  | Background removal: the [IS-Net](https://github.com/xuebinqin/DIS) model, run inside the app by [tract](https://github.com/sonos/tract) | isnet-general-use | Apache-2.0 | 170 MB model | Windows, macOS, Linux |
 
 - **Third-party binaries are never committed.** Their source URL, version and
   SHA-256 live in [`tools/manifest.json`](../tools/manifest.json). The build
@@ -70,11 +74,13 @@ CI runs the same on Windows, macOS and Linux for every push.
 - **macOS:** asks Finder for its selection with AppleScript; macOS asks once
   for permission to control Finder.
 - **Network:** engines are downloaded only when you press "Download", and
-  only from the address in `tools/manifest.json` (GitHub for Pandoc,
-  mupdf.com for MuPDF). Once a day, unless turned off in Settings, the app
-  reads `api.github.com/repos/Dec3n7/mutabor/releases/latest` to see whether a
-  newer version is out (`src-tauri/src/updates.rs`); nothing else is sent. No
-  telemetry.
+  only from the address in `tools/manifest.json` (GitHub for most of them,
+  mupdf.com for MuPDF, Hugging Face for the speech model). Once a day, unless
+  turned off in Settings, the app reads
+  `api.github.com/repos/Dec3n7/mutabor/releases/latest` to see whether a newer
+  version is out (`src-tauri/src/updates.rs`); nothing else is sent. No
+  telemetry. Downloads use `HTTPS_PROXY` if it is set, otherwise the Windows
+  system proxy (`src-tauri/src/net.rs`).
 - **Files:** settings in `settings.json` in the OS config folder
   (`%APPDATA%\io.github.dec3n7.mutabor` on Windows), engines in
   `%LOCALAPPDATA%\io.github.dec3n7.mutabor\engines`. Results are written next
@@ -88,7 +94,7 @@ when a `v*` tag is pushed. Each release has a `SHA256SUMS.txt`, and every file
 has a build provenance attestation. To check a file you downloaded:
 
 ```bash
-gh attestation verify Mutabor_0.1.0_x64-setup.exe --repo Dec3n7/mutabor
+gh attestation verify Mutabor_0.2.0_x64-setup.exe --repo Dec3n7/mutabor
 ```
 
 or compare its SHA-256 with `SHA256SUMS.txt`.
