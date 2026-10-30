@@ -212,6 +212,7 @@ export default {
   remove_bg: "AI で背景を削除",
   purpose_bgremove: "被写体を切り抜き、背景を透明にします。どのパソコンでも動作します",
   ocr: "文字を認識 (OCR)",
+  ocr_copy: "画像の文字をコピー",
   opt_text: "テキストの言語",
   text_auto: "表示言語と同じ",
   purpose_ocr: "スキャン・写真・スクリーンショットから文字を読み取ります",

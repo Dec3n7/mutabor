@@ -212,6 +212,7 @@ export default {
   remove_bg: "Hintergrund entfernen (KI)",
   purpose_bgremove: "Stellt das Motiv frei, transparenter Hintergrund; läuft auf jedem Computer",
   ocr: "Text erkennen (OCR)",
+  ocr_copy: "Text aus Bild kopieren",
   opt_text: "Sprache des Textes",
   text_auto: "Wie die Oberfläche",
   purpose_ocr: "Liest Text aus Scans, Fotos und Screenshots",

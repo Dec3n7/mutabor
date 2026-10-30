@@ -213,6 +213,7 @@ export default {
   remove_bg: "Remove background (AI)",
   purpose_bgremove: "Cuts out the subject, transparent background; runs on any computer",
   ocr: "Text from picture (OCR)",
+  ocr_copy: "Copy text from picture",
   opt_text: "Language of the text",
   text_auto: "Interface language",
   purpose_ocr: "Reads text from scans, photos and screenshots",

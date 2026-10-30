@@ -152,8 +152,10 @@ function render(batch: number, card: Card) {
   if (!card.finished) {
     actions.append(button(t("cancel"), () => invoke("cancel_batch", { batch })));
   } else if (ok > 0 && !card.undone && card.action !== "engine") {
+    // "Copy text" leaves no file worth showing or undoing, only the clipboard.
+    const textOnly = card.action === "ocr_copy";
     const first = jobs.find((j) => j.output)?.output;
-    if (first) actions.append(button(t("show_in_folder"), () => revealItemInDir(first)));
+    if (first && !textOnly) actions.append(button(t("show_in_folder"), () => revealItemInDir(first)));
     actions.append(
       card.copied
         ? el("span", "muted", t("copied"))
@@ -167,12 +169,15 @@ function render(batch: number, card: Card) {
             }
             render(batch, card);
           }),
-      button(t("undo"), async () => {
-        await invoke("undo_batch", { batch });
-        card.undone = true;
-        render(batch, card);
-      }),
     );
+    if (!textOnly)
+      actions.append(
+        button(t("undo"), async () => {
+          await invoke("undo_batch", { batch });
+          card.undone = true;
+          render(batch, card);
+        }),
+      );
   }
   card.el.append(el("div", "name", title), track, infoEl, actions);
 }

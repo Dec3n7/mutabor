@@ -28,6 +28,11 @@ pub fn copy_files(paths: &[PathBuf]) -> Result<(), String> {
     imp::copy_files(paths)
 }
 
+/// Plain text, for recognised text.
+pub fn copy_text(text: &str) -> Result<(), String> {
+    imp::copy_text(text)
+}
+
 pub fn read() -> Option<Copied> {
     imp::read()
 }
@@ -57,6 +62,21 @@ mod imp {
     pub fn copy_files(paths: &[PathBuf]) -> Result<(), String> {
         let list: Vec<String> = paths.iter().map(|p| quote(p)).collect();
         let out = powershell(&format!("Set-Clipboard -LiteralPath {}", list.join(","))).ok_or("powershell")?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+
+    /// Through a UTF-8 file: a command line would mangle quotes and length.
+    pub fn copy_text(text: &str) -> Result<(), String> {
+        let file = std::env::temp_dir().join("mutabor-clipboard.txt");
+        std::fs::write(&file, text).map_err(|e| e.to_string())?;
+        let script = format!("Set-Clipboard -Value (Get-Content -Raw -Encoding UTF8 -LiteralPath {})", quote(&file));
+        let out = powershell(&script).ok_or("powershell");
+        let _ = std::fs::remove_file(&file);
+        let out = out?;
         if out.status.success() {
             Ok(())
         } else {
@@ -107,6 +127,19 @@ mod imp {
         if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).into()) }
     }
 
+    pub fn copy_text(text: &str) -> Result<(), String> {
+        use std::io::Write;
+        use std::process::Stdio;
+        // pbcopy reads UTF-8 only with a UTF-8 locale.
+        let mut child = Command::new("pbcopy")
+            .env("LANG", "en_US.UTF-8")
+            .stdin(Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        child.stdin.take().ok_or("pbcopy")?.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        if child.wait().is_ok_and(|s| s.success()) { Ok(()) } else { Err("pbcopy failed".into()) }
+    }
+
     // TODO: read copied Finder files and pictures («class furl», «class PNGf»).
     pub fn read() -> Option<Copied> {
         None
@@ -122,13 +155,21 @@ mod imp {
     /// Wayland's wl-copy first, then X11's xclip.
     pub fn copy_files(paths: &[PathBuf]) -> Result<(), String> {
         let uris: String = paths.iter().map(|p| format!("file://{}\n", p.to_string_lossy())).collect();
+        copy_as("text/uri-list", &uris)
+    }
+
+    pub fn copy_text(text: &str) -> Result<(), String> {
+        copy_as("text/plain;charset=utf-8", text)
+    }
+
+    fn copy_as(mime: &str, data: &str) -> Result<(), String> {
         for (cmd, args) in [
-            ("wl-copy", vec!["--type", "text/uri-list"]),
-            ("xclip", vec!["-selection", "clipboard", "-t", "text/uri-list"]),
+            ("wl-copy", vec!["--type", mime]),
+            ("xclip", vec!["-selection", "clipboard", "-t", mime]),
         ] {
             if let Ok(mut child) = Command::new(cmd).args(&args).stdin(Stdio::piped()).spawn() {
                 if let Some(mut stdin) = child.stdin.take() {
-                    let _ = stdin.write_all(uris.as_bytes());
+                    let _ = stdin.write_all(data.as_bytes());
                 }
                 if child.wait().is_ok_and(|s| s.success()) {
                     return Ok(());
@@ -159,5 +200,19 @@ mod tests {
         copy_files(std::slice::from_ref(&a)).unwrap();
         assert_eq!(read(), Some(Copied::Files(vec![a.to_string_lossy().into_owned()])));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Uses the real clipboard (overwrites it): `cargo test clipboard -- --ignored`.
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn text_round_trip() {
+        let text = "Привет, \"мир\" 's\nвторая строка";
+        copy_text(text).unwrap();
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-STA", "-Command", "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Clipboard -Raw"])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim_end().replace("\r\n", "\n"), text);
     }
 }

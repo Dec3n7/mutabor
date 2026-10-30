@@ -212,6 +212,7 @@ export default {
   remove_bg: "Supprimer l'arrière-plan (IA)",
   purpose_bgremove: "Détoure le sujet sur fond transparent ; fonctionne sur tout ordinateur",
   ocr: "Reconnaître le texte (OCR)",
+  ocr_copy: "Copier le texte de l’image",
   opt_text: "Langue du texte",
   text_auto: "Comme l’interface",
   purpose_ocr: "Lit le texte des scans, photos et captures d’écran",

@@ -212,6 +212,7 @@ export default {
   remove_bg: "Usuń tło (AI)",
   purpose_bgremove: "Wycina obiekt, tło staje się przezroczyste; działa na każdym komputerze",
   ocr: "Rozpoznaj tekst (OCR)",
+  ocr_copy: "Kopiuj tekst z obrazu",
   opt_text: "Język tekstu",
   text_auto: "Jak interfejs",
   purpose_ocr: "Odczytuje tekst ze skanów, zdjęć i zrzutów ekranu",

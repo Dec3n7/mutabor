@@ -174,6 +174,9 @@ pub struct Plan {
     pub tool: Tool,
     /// The output is a folder (one file per page).
     pub dir: bool,
+    /// The result is text meant for the clipboard: it is written to a
+    /// temporary folder and copied as text when the batch finishes.
+    pub clipboard_text: bool,
     /// Runs `args` once per PDF page.
     pub per_page: bool,
     /// The tool reads only JPEG/PNG/WebP: other pictures become a PNG first.
@@ -638,9 +641,10 @@ fn image_plan(action: &str, input_ext: &str, quality: Quality, opts: &Options) -
             return Ok(Plan { tool: Tool::Matting, ext: "png".into(), suffix: "_nobg".into(), ..Default::default() });
         }
         // The only argument is the text's language, "auto" for the interface's.
-        "ocr" => {
+        "ocr" | "ocr_copy" => {
             let lang = opts.text.map_or("auto".to_string(), |l| l.as_str().to_string());
-            return Ok(Plan { tool: Tool::Ocr, ext: "txt".into(), args: vec![lang], ..Default::default() });
+            let clipboard_text = action == "ocr_copy";
+            return Ok(Plan { tool: Tool::Ocr, ext: "txt".into(), args: vec![lang], clipboard_text, ..Default::default() });
         }
         "rotate_left" => (same, "_rotated", Some("transpose=2".into())),
         "rotate_right" => (same, "_rotated", Some("transpose=1".into())),
@@ -1002,6 +1006,8 @@ mod tests {
         assert_eq!((p.tool, p.ext.as_str(), p.args.as_slice()), (Tool::Ocr, "txt", &["uk".to_string()][..]));
         let auto = plan("ocr", "jpg", Probe::default(), &Options::default()).unwrap();
         assert_eq!(auto.args, ["auto"]);
+        assert!(!auto.clipboard_text);
+        assert!(plan("ocr_copy", "png", Probe::default(), &o).unwrap().clipboard_text);
     }
 
     #[test]

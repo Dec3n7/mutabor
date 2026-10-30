@@ -225,6 +225,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "remove_bg", keywords: "фон удалить вырезать background remove transparent прозрачный", engine: "bgremove" },
     { id: "upscale", keywords: "увеличить апскейл upscale esrgan качество", engine: "realesrgan", options: ["model"] },
     { id: "ocr", keywords: "текст распознать скан ocr text recognize scan tesseract", engine: "ocr", options: ["text"] },
+    { id: "ocr_copy", keywords: "текст скопировать буфер скриншот ocr text copy clipboard screenshot", engine: "ocr", options: ["text"] },
     ...PACK,
   ],
   pdf: [

@@ -212,6 +212,7 @@ export default {
   remove_bg: "Quitar el fondo (IA)",
   purpose_bgremove: "Recorta el sujeto con fondo transparente; funciona en cualquier equipo",
   ocr: "Reconocer texto (OCR)",
+  ocr_copy: "Copiar texto de la imagen",
   opt_text: "Idioma del texto",
   text_auto: "Como la interfaz",
   purpose_ocr: "Lee el texto de escaneos, fotos y capturas de pantalla",

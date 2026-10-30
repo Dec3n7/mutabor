@@ -212,6 +212,7 @@ export default {
   remove_bg: "Arka planı kaldır (YZ)",
   purpose_bgremove: "Nesneyi kesip arka planı şeffaf yapar; her bilgisayarda çalışır",
   ocr: "Metni tanı (OCR)",
+  ocr_copy: "Resimdeki metni kopyala",
   opt_text: "Metnin dili",
   text_auto: "Arayüz dili",
   purpose_ocr: "Taramalardan, fotoğraflardan ve ekran görüntülerinden metin okur",

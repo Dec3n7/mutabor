@@ -212,6 +212,7 @@ export default {
   remove_bg: "AI 去除背景",
   purpose_bgremove: "抠出主体，背景变为透明；任何电脑都能运行",
   ocr: "识别文字 (OCR)",
+  ocr_copy: "复制图片中的文字",
   opt_text: "文字语言",
   text_auto: "与界面相同",
   purpose_ocr: "从扫描件、照片和截图中识别文字",

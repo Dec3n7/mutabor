@@ -32,6 +32,8 @@ struct Batch {
     left: usize,
     outputs: Vec<PathBuf>,
     copy: bool,
+    /// The results are text files whose text, not the files, is copied.
+    text: bool,
 }
 
 #[derive(Default)]
@@ -123,6 +125,23 @@ fn result_dir(app: &AppHandle, input: &Path) -> PathBuf {
         }
     }
     input.parent().unwrap_or(Path::new(".")).to_path_buf()
+}
+
+/// Where "copy text" writes its results: nothing is left next to the picture.
+fn text_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join("mutabor-text");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Results go to the clipboard as files, or as one text for recognised text.
+fn copy_outputs(outputs: &[PathBuf], text: bool) -> Result<(), String> {
+    if !text {
+        return crate::clipboard::copy_files(outputs);
+    }
+    let texts: Vec<String> = outputs.iter().filter_map(|p| std::fs::read_to_string(p).ok()).collect();
+    let joined = texts.iter().map(|t| t.trim()).collect::<Vec<_>>().join("\n\n");
+    crate::clipboard::copy_text(&joined)
 }
 
 fn ext_of(p: &Path) -> String {
@@ -437,10 +456,17 @@ impl Jobs {
             let _ = app.emit_to(TOAST, "job", Event::Started { id, batch, name, steady: true });
             let _ = app.emit_to(TOAST, "job", Event::Failed { id, message });
         }
+        // Recognised text is copied as text; "copy text" always copies.
+        let plan_of = |j: &Job| match &j.work {
+            Work::Plan { plan, .. } => Some((plan.tool, plan.clipboard_text)),
+            Work::Chain(_) => None,
+        };
+        let text = jobs.iter().all(|j| plan_of(j).is_some_and(|(tool, _)| tool == Tool::Ocr));
+        let copy = settings.copy_result || jobs.iter().any(|j| plan_of(j).is_some_and(|(_, c)| c));
         self.batches
             .lock()
             .unwrap()
-            .insert(batch, Batch { left: jobs.len(), outputs: Vec::new(), copy: settings.copy_result });
+            .insert(batch, Batch { left: jobs.len(), outputs: Vec::new(), copy, text });
 
         let parallel = settings.parallel;
         for job in jobs {
@@ -508,7 +534,7 @@ impl Jobs {
             let _ = app.emit_to(TOAST, "job", Event::Running { id: job.id });
             let r = match &job.work {
                 Work::Plan { plan, program, duration, svg_side } => {
-                    let dir = result_dir(app, &job.inputs[0]);
+                    let dir = if plan.clipboard_text { text_dir() } else { result_dir(app, &job.inputs[0]) };
                     let ext = if plan.dir { "" } else { &plan.ext };
                     // Named after the original even when an SVG was drawn first;
                     // several files packed together are named after their folder.
@@ -570,10 +596,10 @@ impl Jobs {
             let Some(b) = batches.get_mut(&batch) else { return };
             b.left = b.left.saturating_sub(1);
             b.outputs.extend(output);
-            (b.left == 0).then(|| (b.copy, b.outputs.clone()))
+            (b.left == 0).then(|| (b.copy, b.text, b.outputs.clone()))
         };
-        if let Some((copy, outputs)) = done {
-            let copied = copy && !outputs.is_empty() && crate::clipboard::copy_files(&outputs).is_ok();
+        if let Some((copy, text, outputs)) = done {
+            let copied = copy && !outputs.is_empty() && copy_outputs(&outputs, text).is_ok();
             let _ = app.emit_to(TOAST, "job", Event::Finished { batch, copied });
         }
     }
@@ -990,8 +1016,9 @@ impl Jobs {
     }
 
     pub fn copy(&self, batch: u64) -> Result<(), String> {
-        let outputs = self.batches.lock().unwrap().get(&batch).map(|b| b.outputs.clone()).unwrap_or_default();
-        crate::clipboard::copy_files(&outputs)
+        let (outputs, text) =
+            self.batches.lock().unwrap().get(&batch).map(|b| (b.outputs.clone(), b.text)).unwrap_or_default();
+        copy_outputs(&outputs, text)
     }
 }
 
