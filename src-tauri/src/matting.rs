@@ -67,6 +67,11 @@ mod tests {
         let model = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default())
             .join("Downloads")
             .join("isnet-general-use.onnx");
+        if !model.exists() {
+            // CI has no model: 170 MB is too much to fetch on every push.
+            eprintln!("skipped: no {}", model.display());
+            return;
+        }
         let mut rgb = vec![235u8; SIZE * SIZE * 3];
         for y in 384..640 {
             for x in 384..640 {
