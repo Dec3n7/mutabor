@@ -211,4 +211,8 @@ export default {
   purpose_whisper: "음성을 자막이나 텍스트로, 오프라인",
   remove_bg: "AI로 배경 제거",
   purpose_bgremove: "피사체를 잘라내고 배경을 투명하게 만듭니다. 어떤 컴퓨터에서도 작동합니다",
+  ocr: "텍스트 인식 (OCR)",
+  opt_text: "텍스트 언어",
+  text_auto: "인터페이스와 동일",
+  purpose_ocr: "스캔, 사진, 스크린샷에서 텍스트를 읽습니다",
 };

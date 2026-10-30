@@ -211,4 +211,8 @@ export default {
   purpose_whisper: "De voz a subtítulos o texto, sin conexión",
   remove_bg: "Quitar el fondo (IA)",
   purpose_bgremove: "Recorta el sujeto con fondo transparente; funciona en cualquier equipo",
+  ocr: "Reconocer texto (OCR)",
+  opt_text: "Idioma del texto",
+  text_auto: "Como la interfaz",
+  purpose_ocr: "Lee el texto de escaneos, fotos y capturas de pantalla",
 };

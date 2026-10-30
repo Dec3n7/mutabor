@@ -211,4 +211,8 @@ export default {
   purpose_whisper: "Sprache zu Untertiteln oder Text, offline",
   remove_bg: "Hintergrund entfernen (KI)",
   purpose_bgremove: "Stellt das Motiv frei, transparenter Hintergrund; läuft auf jedem Computer",
+  ocr: "Text erkennen (OCR)",
+  opt_text: "Sprache des Textes",
+  text_auto: "Wie die Oberfläche",
+  purpose_ocr: "Liest Text aus Scans, Fotos und Screenshots",
 };

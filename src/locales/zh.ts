@@ -211,4 +211,8 @@ export default {
   purpose_whisper: "离线将语音转为字幕或文字",
   remove_bg: "AI 去除背景",
   purpose_bgremove: "抠出主体，背景变为透明；任何电脑都能运行",
+  ocr: "识别文字 (OCR)",
+  opt_text: "文字语言",
+  text_auto: "与界面相同",
+  purpose_ocr: "从扫描件、照片和截图中识别文字",
 };

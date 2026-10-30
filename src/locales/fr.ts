@@ -211,4 +211,8 @@ export default {
   purpose_whisper: "La parole en sous-titres ou en texte, hors ligne",
   remove_bg: "Supprimer l'arrière-plan (IA)",
   purpose_bgremove: "Détoure le sujet sur fond transparent ; fonctionne sur tout ordinateur",
+  ocr: "Reconnaître le texte (OCR)",
+  opt_text: "Langue du texte",
+  text_auto: "Comme l’interface",
+  purpose_ocr: "Lit le texte des scans, photos et captures d’écran",
 };

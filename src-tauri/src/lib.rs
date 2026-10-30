@@ -8,6 +8,7 @@ mod selection;
 mod settings;
 mod svg;
 mod matting;
+mod ocr;
 mod net;
 mod updates;
 

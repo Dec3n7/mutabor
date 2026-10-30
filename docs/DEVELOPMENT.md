@@ -6,8 +6,10 @@ how to check that a download really comes from this repository. The
 
 ## Building from source
 
-You need [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 20+ and the
-[Tauri prerequisites](https://tauri.app/start/prerequisites/) for your system.
+You need [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 20+, the
+[Tauri prerequisites](https://tauri.app/start/prerequisites/) for your system,
+and [CMake](https://cmake.org) (Tesseract is compiled from source on the first
+build, which takes a few minutes).
 
 ```bash
 npm install
@@ -55,6 +57,7 @@ CI runs the same on Windows, macOS and Linux for every push.
   | [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) | 0.2.5.0 | BSD-3-Clause | 43–49 MB | Windows, macOS, Linux (needs a Vulkan graphics card) |
   | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) | b5454 | MIT | 9–10 MB + 181 MB model | Windows, Linux |
   | Background removal: the [IS-Net](https://github.com/xuebinqin/DIS) model, run inside the app by [tract](https://github.com/sonos/tract) | isnet-general-use | Apache-2.0 | 170 MB model | Windows, macOS, Linux |
+  | Text recognition: [Tesseract](https://github.com/tesseract-ocr/tesseract) 5.5, compiled into the app by [tesseract-rs](https://github.com/cafercangundogdu/tesseract-rs) | tessdata_fast | Apache-2.0 | 35 MB of language files | Windows, macOS, Linux |
 
 - **Third-party binaries are never committed.** Their source URL, version and
   SHA-256 live in [`tools/manifest.json`](../tools/manifest.json). The build

@@ -162,6 +162,7 @@ function choiceLabel(field: Field, v: string | number): string {
   if (field === "speed") return `×${v}`;
   if (field === "model") return t(`model_${v}`);
   if (field === "speech") return v === "auto" ? t("speech_auto") : (LANGUAGES[v] ?? String(v));
+  if (field === "text") return v === "auto" ? t("text_auto") : (LANGUAGES[v] ?? String(v));
   return String(v);
 }
 

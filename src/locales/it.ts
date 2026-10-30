@@ -211,4 +211,8 @@ export default {
   purpose_whisper: "Dal parlato a sottotitoli o testo, offline",
   remove_bg: "Rimuovi sfondo (IA)",
   purpose_bgremove: "Scontorna il soggetto con sfondo trasparente; funziona su qualsiasi computer",
+  ocr: "Riconosci testo (OCR)",
+  opt_text: "Lingua del testo",
+  text_auto: "Come l’interfaccia",
+  purpose_ocr: "Legge il testo da scansioni, foto e screenshot",
 };

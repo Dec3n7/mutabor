@@ -57,6 +57,8 @@ pub struct Options {
     pub model: Option<Model>,
     /// Spoken language for speech recognition; none means "detect".
     pub speech: Option<SpeechLang>,
+    /// Language of a picture's text; none means the interface language.
+    pub text: Option<SpeechLang>,
 }
 
 /// A two-letter language code ("ru"), kept `Copy` like the other options.
@@ -140,6 +142,8 @@ pub enum Tool {
     Whisper,
     /// Background removal, run inside the app (see `matting.rs`).
     Matting,
+    /// Text recognition, run inside the app (see `ocr.rs`).
+    Ocr,
 }
 
 impl Tool {
@@ -154,6 +158,7 @@ impl Tool {
             Tool::Whisper => Some(("whisper", "whisper-cli")),
             // A model-only engine: the "program" is the model file.
             Tool::Matting => Some(("bgremove", crate::matting::MODEL_FILE)),
+            Tool::Ocr => Some(("ocr", crate::ocr::MARKER_FILE)),
         }
     }
 }
@@ -632,6 +637,11 @@ fn image_plan(action: &str, input_ext: &str, quality: Quality, opts: &Options) -
         "remove_bg" => {
             return Ok(Plan { tool: Tool::Matting, ext: "png".into(), suffix: "_nobg".into(), ..Default::default() });
         }
+        // The only argument is the text's language, "auto" for the interface's.
+        "ocr" => {
+            let lang = opts.text.map_or("auto".to_string(), |l| l.as_str().to_string());
+            return Ok(Plan { tool: Tool::Ocr, ext: "txt".into(), args: vec![lang], ..Default::default() });
+        }
         "rotate_left" => (same, "_rotated", Some("transpose=2".into())),
         "rotate_right" => (same, "_rotated", Some("transpose=1".into())),
         "flip_h" => (same, "_flipped", Some("hflip".into())),
@@ -983,6 +993,15 @@ mod tests {
         // The frontend sends lowercase names and may omit any field.
         let parsed: Options = serde_json::from_str(r#"{"quality":"small","height":480}"#).unwrap();
         assert_eq!(parsed, opts(Quality::Small, Some(480)));
+    }
+
+    #[test]
+    fn ocr_recipe() {
+        let o: Options = serde_json::from_str(r#"{"text":"uk"}"#).unwrap();
+        let p = plan("ocr", "png", Probe::default(), &o).unwrap();
+        assert_eq!((p.tool, p.ext.as_str(), p.args.as_slice()), (Tool::Ocr, "txt", &["uk".to_string()][..]));
+        let auto = plan("ocr", "jpg", Probe::default(), &Options::default()).unwrap();
+        assert_eq!(auto.args, ["auto"]);
     }
 
     #[test]

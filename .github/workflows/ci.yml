@@ -32,6 +32,15 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
+      # tesseract-rs compiles Tesseract into a folder of its own, outside target.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.tesseract-rs
+            ~/Library/Application Support/tesseract-rs
+            ~/AppData/Roaming/tesseract-rs
+          key: tesseract-rs-0.4.0-${{ runner.os }}-${{ runner.arch }}
+
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: |

@@ -211,4 +211,8 @@ export default {
   purpose_whisper: "Fala em legendas ou texto, offline",
   remove_bg: "Remover fundo (IA)",
   purpose_bgremove: "Recorta o objeto com fundo transparente; funciona em qualquer computador",
+  ocr: "Reconhecer texto (OCR)",
+  opt_text: "Idioma do texto",
+  text_auto: "Como a interface",
+  purpose_ocr: "Lê o texto de digitalizações, fotos e capturas de tela",
 };

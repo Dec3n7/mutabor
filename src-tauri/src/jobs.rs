@@ -690,6 +690,7 @@ impl Jobs {
         let mut steps = Vec::new();
         match plan.tool {
             Tool::Matting => return self.remove_background(app, id, program, &inputs[0], written, span),
+            Tool::Ocr => return self.recognize_text(app, id, program, &plan.args[0], &inputs[0], written, span),
             Tool::Ffmpeg => {
                 let mut cmd = ffmpeg();
                 cmd.args(["-hide_banner", "-nostdin", "-n"])
@@ -826,6 +827,42 @@ impl Jobs {
         let result = self.run_step(app, id, Step { cmd, ffmpeg: false }, None, span);
         let _ = std::fs::remove_file(&mask_file);
         result
+    }
+
+    /// ffmpeg turns the picture grey (twice as large when small: Tesseract
+    /// misses letters under ~20 px), Tesseract (in-process) reads the text.
+    #[allow(clippy::too_many_arguments)]
+    fn recognize_text(
+        &self,
+        app: &AppHandle,
+        id: u64,
+        marker: &Path,
+        lang: &str,
+        input: &Path,
+        written: &Path,
+        span: Span,
+    ) -> Result<(), String> {
+        let banner = ffmpeg().arg("-hide_banner").arg("-i").arg(input).output().map_err(|e| e.to_string())?;
+        let (mut w, mut h) = recipes::parse_size(&String::from_utf8_lossy(&banner.stderr)).ok_or("not_a_picture")?;
+        if w.max(h) < 2000 {
+            (w, h) = (w * 2, h * 2);
+        }
+        let gray = ffmpeg()
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(input)
+            .args(["-frames:v", "1", "-vf", &format!("scale={w}:{h}:flags=bicubic,format=gray")])
+            .args(["-f", "rawvideo", "-"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !gray.status.success() {
+            return Err(String::from_utf8_lossy(&gray.stderr).trim().to_string());
+        }
+        let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: span.at(20) });
+        let ui = app.state::<crate::settings::Store>().get(app).language;
+        let languages = crate::ocr::languages(lang, &ui);
+        let tessdata = marker.parent().ok_or("no tessdata")?;
+        let text = crate::ocr::text(tessdata, &languages, &gray.stdout, w, h)?;
+        std::fs::write(written, text).map_err(|e| e.to_string())
     }
 
     fn run_step(&self, app: &AppHandle, id: u64, mut step: Step, duration: Option<f64>, span: Span) -> Result<(), String> {

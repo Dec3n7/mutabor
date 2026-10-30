@@ -211,4 +211,8 @@ export default {
   purpose_whisper: "Mowa na napisy lub tekst, bez internetu",
   remove_bg: "Usuń tło (AI)",
   purpose_bgremove: "Wycina obiekt, tło staje się przezroczyste; działa na każdym komputerze",
+  ocr: "Rozpoznaj tekst (OCR)",
+  opt_text: "Język tekstu",
+  text_auto: "Jak interfejs",
+  purpose_ocr: "Odczytuje tekst ze skanów, zdjęć i zrzutów ekranu",
 };

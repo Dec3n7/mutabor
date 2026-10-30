@@ -23,7 +23,7 @@ export interface Action {
   /** Always opens the submenu: running without choices makes no sense. */
   ask?: boolean;
   /** Optional engine the action needs; downloaded on first use. */
-  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan" | "whisper" | "bgremove";
+  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan" | "whisper" | "bgremove" | "ocr";
   /** Works on the whole selection at once and needs at least two files. */
   multi?: boolean;
   /** Short button text for quick actions; the full label becomes a tooltip. */
@@ -53,7 +53,8 @@ export type Field =
   | "mb"
   | "speed"
   | "model"
-  | "speech";
+  | "speech"
+  | "text";
 export type Quality = "high" | "normal" | "small";
 export interface Options {
   quality?: Quality;
@@ -76,6 +77,8 @@ export interface Options {
   model?: "photo" | "anime";
   /** Spoken language, two letters; absent means "detect". */
   speech?: string;
+  /** Language of a picture's text, two letters; absent means the interface's. */
+  text?: string;
 }
 
 /** Fields typed as text (a time) rather than picked from chips. */
@@ -95,6 +98,7 @@ export const CHOICES: Partial<Record<Field, (string | number)[]>> = {
   speed: [0.25, 0.5, 1.5, 2, 4],
   model: ["photo", "anime"],
   speech: ["auto", "ru", "en", "uk", "es", "pt", "de", "fr", "it", "pl", "tr", "zh", "ja", "ko"],
+  text: ["auto", "ru", "en", "uk", "es", "pt", "de", "fr", "it", "pl", "tr", "zh", "ja", "ko"],
 };
 
 /** Choices for a field of this action; resizing has no "original" size. */
@@ -105,15 +109,15 @@ export function choicesFor(a: Action, f: Field): (string | number)[] {
 
 /** Option value as shown in a chip: ratios are kept as [w, h]. */
 export function chipValue(o: Options, f: Field): string | number | undefined {
-  if (f === "speech") return o.speech ?? "auto";
+  if (f === "speech" || f === "text") return o[f] ?? "auto";
   const v = o[f];
   return Array.isArray(v) ? v.join(":") : v;
 }
 
 export function setChip(o: Options, f: Field, v: string | number) {
   const rec = o as Record<string, unknown>;
-  if (f === "speech" && v === "auto") {
-    delete rec.speech;
+  if ((f === "speech" || f === "text") && v === "auto") {
+    delete rec[f];
     return;
   }
   rec[f] = f === "ratio" ? String(v).split(":").map(Number) : v;
@@ -220,6 +224,7 @@ export const ACTIONS: Record<Kind, Action[]> = {
     { id: "strip_meta", keywords: "exif gps метаданные" },
     { id: "remove_bg", keywords: "фон удалить вырезать background remove transparent прозрачный", engine: "bgremove" },
     { id: "upscale", keywords: "увеличить апскейл upscale esrgan качество", engine: "realesrgan", options: ["model"] },
+    { id: "ocr", keywords: "текст распознать скан ocr text recognize scan tesseract", engine: "ocr", options: ["text"] },
     ...PACK,
   ],
   pdf: [
