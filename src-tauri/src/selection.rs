@@ -27,27 +27,45 @@ mod imp {
     #[link(name = "user32")]
     unsafe extern "system" {
         fn GetForegroundWindow() -> isize;
+        fn GetClassNameW(hwnd: isize, name: *mut u16, len: i32) -> i32;
+    }
+
+    /// The desktop's icons live in a "Progman" or "WorkerW" window.
+    fn is_desktop(hwnd: isize) -> bool {
+        let mut buf = [0u16; 64];
+        let n = unsafe { GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+        let class = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+        class == "Progman" || class == "WorkerW"
     }
 
     /// Asks Explorer (Shell.Application COM) for the selection of the
     /// foreground window.
     // TODO: Explorer tabs share one HWND, so with several tabs open the
     // first tab that has a selection wins. Replace with native COM later.
-    // TODO: selection on the desktop is not covered by Shell.Windows().
     pub fn selected_paths() -> Option<Vec<String>> {
         let hwnd = unsafe { GetForegroundWindow() };
         if hwnd == 0 {
             return None;
         }
-        let script = format!(
+        let script = if is_desktop(hwnd) {
+            // Shell.Windows() leaves the desktop out; FindWindowSW with
+            // SWC_DESKTOP (8) and SWFO_NEEDDISPATCH (1) hands out its view.
             "[Console]::OutputEncoding=[Text.Encoding]::UTF8; \
-             $sh=New-Object -ComObject Shell.Application; \
-             foreach($w in $sh.Windows()){{ try {{ \
-               if([long]$w.HWND -eq {hwnd}){{ \
-                 $s=$w.Document.SelectedItems(); \
-                 if($s.Count -gt 0){{ foreach($i in $s){{ $i.Path }}; break }} \
-               }} }} catch {{}} }}"
-        );
+             $sw=(New-Object -ComObject Shell.Application).Windows(); $h=0; \
+             try { $d=$sw.FindWindowSW([ref]0, [ref]$null, 8, [ref]$h, 1); \
+               foreach($i in $d.Document.SelectedItems()){ $i.Path } } catch {}"
+                .to_string()
+        } else {
+            format!(
+                "[Console]::OutputEncoding=[Text.Encoding]::UTF8; \
+                 $sh=New-Object -ComObject Shell.Application; \
+                 foreach($w in $sh.Windows()){{ try {{ \
+                   if([long]$w.HWND -eq {hwnd}){{ \
+                     $s=$w.Document.SelectedItems(); \
+                     if($s.Count -gt 0){{ foreach($i in $s){{ $i.Path }}; break }} \
+                   }} }} catch {{}} }}"
+            )
+        };
         let out = Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .creation_flags(CREATE_NO_WINDOW)
