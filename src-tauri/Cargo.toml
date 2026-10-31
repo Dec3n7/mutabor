@@ -1,6 +1,6 @@
 [package]
 name = "mutabor"
-version = "0.2.0"
+version = "0.3.0"
 description = "Offline file converter: select a file, press a hotkey, pick an action"
 authors = ["Dec3n7"]
 license = "GPL-3.0-or-later"

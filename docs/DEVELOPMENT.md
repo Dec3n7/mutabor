@@ -97,7 +97,7 @@ when a `v*` tag is pushed. Each release has a `SHA256SUMS.txt`, and every file
 has a build provenance attestation. To check a file you downloaded:
 
 ```bash
-gh attestation verify Mutabor_0.2.0_x64-setup.exe --repo Dec3n7/mutabor
+gh attestation verify Mutabor_0.3.0_x64-setup.exe --repo Dec3n7/mutabor
 ```
 
 or compare its SHA-256 with `SHA256SUMS.txt`.
