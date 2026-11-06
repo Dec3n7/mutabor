@@ -364,6 +364,8 @@ fn speech_plan(action: &str, opts: &Options) -> Result<Plan, PlanError> {
             "-f".into(), "{in}".into(),
             "-l".into(), lang,
             format.into(),
+            // Reports "progress = 25%" on stderr for the toast.
+            "-pp".into(),
             "-of".into(), "{outbase}".into(),
         ],
         ..Default::default()

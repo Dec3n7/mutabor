@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: Dec3n7.Mutabor
+PackageVersion: 0.3.0
+PackageLocale: en-US
+Publisher: Dec3n7
+PublisherUrl: https://github.com/Dec3n7
+PublisherSupportUrl: https://github.com/Dec3n7/mutabor/issues
+PackageName: Mutabor
+PackageUrl: https://github.com/Dec3n7/mutabor
+License: GPL-3.0
+LicenseUrl: https://github.com/Dec3n7/mutabor/blob/main/LICENSE
+ShortDescription: Convert, compress and clean up files with one hotkey, right on your computer.
+Tags:
+  - converter
+  - ffmpeg
+  - offline
+  - privacy
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

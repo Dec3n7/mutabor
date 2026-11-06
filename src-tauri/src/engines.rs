@@ -178,7 +178,10 @@ pub fn install(app: &AppHandle, name: &str, cancel: &AtomicBool, mut progress: i
             if !build.keep {
                 std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             }
-            download(&extra.url, &target, &extra.sha256, extra.size, cancel, &mut |p| progress(part(p)))?;
+            // Partial downloads stay in the root folder, where a retry finds them.
+            let partial = root.join(format!("{}.part", extra.name));
+            download(&extra.url, &partial, &extra.sha256, extra.size, cancel, &mut |p| progress(part(p)))?;
+            std::fs::rename(&partial, &target).map_err(|e| e.to_string())?;
             done += extra.size;
         }
         if build.keep {
@@ -230,10 +233,11 @@ fn install_extras(tool: &Tool, dir: &Path, cancel: &AtomicBool, progress: &mut i
     let mut done = 0;
     for extra in &tool.extra {
         let part = |p: u8| ((done + extra.size * p as u64 / 100) * 100 / total).min(99) as u8;
-        if let Err(e) = download(&extra.url, &dir.join(&extra.name), &extra.sha256, extra.size, cancel, &mut |p| progress(part(p))) {
-            let _ = std::fs::remove_dir_all(dir);
-            return Err(e);
-        }
+        // Downloads go to `.part` files, so an interrupted one can resume and
+        // is never mistaken for an installed model.
+        let partial = dir.join(format!("{}.part", extra.name));
+        download(&extra.url, &partial, &extra.sha256, extra.size, cancel, &mut |p| progress(part(p)))?;
+        std::fs::rename(&partial, dir.join(&extra.name)).map_err(|e| e.to_string())?;
         done += extra.size;
     }
     Ok(())
@@ -248,6 +252,11 @@ pub fn remove(app: &AppHandle, name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Downloads `url` to `to` and checks its SHA-256. A partial file left by an
+/// earlier, interrupted attempt is continued with an HTTP Range request, so a
+/// slow or dropped connection does not start the whole download again. A
+/// cancelled or failed attempt keeps the partial file; a file that does not
+/// match its hash is deleted.
 fn download(
     url: &str,
     to: &Path,
@@ -256,19 +265,52 @@ fn download(
     cancel: &AtomicBool,
     progress: &mut impl FnMut(u8),
 ) -> Result<(), String> {
-    let response = crate::net::agent().get(url).call().map_err(|e| format!("download: {e}"))?;
-    let total = response
+    let mut hasher = Sha256::new();
+    let mut done = 0u64;
+    let have = std::fs::metadata(to).map(|m| m.len()).unwrap_or(0);
+    let response = if have > 0 {
+        crate::net::agent()
+            .get(url)
+            .header("Range", format!("bytes={have}-"))
+            .config()
+            .http_status_as_error(false)
+            .build()
+            .call()
+            .map_err(|e| format!("download: {e}"))?
+    } else {
+        crate::net::agent().get(url).call().map_err(|e| format!("download: {e}"))?
+    };
+    let status = response.status().as_u16();
+    let mut file = if have > 0 && status == 206 {
+        // Resume: the bytes already on disk count toward the hash and the progress.
+        hash_file(to, &mut hasher)?;
+        done = have;
+        std::fs::OpenOptions::new().append(true).open(to).map_err(|e| e.to_string())?
+    } else if have > 0 && status == 416 {
+        // The partial file already has every byte: only the hash is left to check.
+        drop(response);
+        hash_file(to, &mut hasher)?;
+        return finish(to, &mut hasher, sha256);
+    } else if (200..300).contains(&status) {
+        std::fs::File::create(to).map_err(|e| e.to_string())?
+    } else {
+        return Err(format!("download: HTTP {status}"));
+    };
+    let content = response
         .headers()
         .get("content-length")
-        .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
-        .unwrap_or(size_hint);
+        .and_then(|v| v.to_str().ok()?.parse::<u64>().ok());
+    let total = match content {
+        Some(c) if done > 0 => done + c,
+        Some(c) => c,
+        None => size_hint,
+    };
     let mut reader = response.into_body().into_reader();
-    let mut file = std::fs::File::create(to).map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 256 * 1024];
-    let (mut done, mut last) = (0u64, 0u8);
+    let mut last = (done * 100 / total.max(1)).min(99) as u8;
     loop {
         if cancel.load(Ordering::Relaxed) {
+            file.flush().ok();
             return Err("cancelled".into());
         }
         let n = reader.read(&mut buf).map_err(|e| format!("download: {e}"))?;
@@ -287,8 +329,29 @@ fn download(
         }
     }
     file.flush().map_err(|e| e.to_string())?;
-    let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    drop(file);
+    finish(to, &mut hasher, sha256)
+}
+
+/// Feeds the bytes of a file already on disk into the hash.
+fn hash_file(path: &Path, hasher: &mut Sha256) -> Result<(), String> {
+    let mut old = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut chunk = vec![0u8; 256 * 1024];
+    loop {
+        let n = old.read(&mut chunk).map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Ok(());
+        }
+        hasher.update(&chunk[..n]);
+    }
+}
+
+/// Checks the hash of a finished download; a file that does not match is
+/// deleted so the next attempt starts clean.
+fn finish(to: &Path, hasher: &mut Sha256, sha256: &str) -> Result<(), String> {
+    let actual: String = hasher.clone().finalize().iter().map(|b| format!("{b:02x}")).collect();
     if actual != sha256 {
+        let _ = std::fs::remove_file(to);
         return Err(format!("SHA-256 mismatch: expected {sha256}, got {actual}"));
     }
     Ok(())
@@ -362,6 +425,49 @@ mod tests {
 
     /// Serves the archive `npm run tools -- --optional` left in .cache from a
     /// local HTTP server and downloads it, so no network is needed.
+    #[test]
+    #[ignore]
+    fn resumes_a_partial_download() {
+        use std::net::TcpListener;
+        let build = &tools()["pandoc"].builds[TARGET];
+        let cached = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.cache/tools"))
+            .join(build.url.rsplit('/').next().unwrap());
+        let body = std::fs::read(&cached).expect("run `npm run tools -- --optional` first");
+        // A server that honours Range requests, as GitHub and mupdf.com do.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/archive.zip", listener.local_addr().unwrap());
+        let served = body.clone();
+        std::thread::spawn(move || {
+            for mut conn in listener.incoming().flatten() {
+                let mut req = [0u8; 4096];
+                let n = conn.read(&mut req).unwrap_or(0);
+                let text = String::from_utf8_lossy(&req[..n]).to_ascii_lowercase();
+                let from = text
+                    .lines()
+                    .find_map(|l| l.strip_prefix("range: bytes="))
+                    .and_then(|r| r.trim_end_matches('-').trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                let rest = &served[from.min(served.len())..];
+                let status = if from > 0 { "206 Partial Content" } else { "200 OK" };
+                let head = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", rest.len());
+                let _ = conn.write_all(head.as_bytes());
+                let _ = conn.write_all(rest);
+            }
+        });
+
+        let to = std::env::temp_dir().join("mutabor-resume.zip");
+        let half = body.len() / 2;
+        std::fs::write(&to, &body[..half]).unwrap();
+        // A cancelled attempt keeps what it has.
+        let err = download(&url, &to, &build.sha256, 0, &AtomicBool::new(true), &mut |_| {}).unwrap_err();
+        assert_eq!(err, "cancelled");
+        assert_eq!(std::fs::metadata(&to).unwrap().len(), half as u64);
+        // The next attempt continues where the first one stopped.
+        download(&url, &to, &build.sha256, 0, &AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert_eq!(std::fs::read(&to).unwrap(), body);
+        let _ = std::fs::remove_file(&to);
+    }
+
     #[test]
     #[ignore]
     fn downloads_and_checks_hash() {

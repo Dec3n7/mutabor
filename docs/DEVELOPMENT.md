@@ -83,7 +83,10 @@ CI runs the same on Windows, macOS and Linux for every push.
   `api.github.com/repos/Dec3n7/mutabor/releases/latest` to see whether a newer
   version is out (`src-tauri/src/updates.rs`); nothing else is sent. No
   telemetry. Downloads use `HTTPS_PROXY` if it is set, otherwise the Windows
-  system proxy (`src-tauri/src/net.rs`).
+  system proxy (`src-tauri/src/net.rs`). Tests in `net.rs` fail if the code
+  names any other host, or if a download in the manifest has no SHA-256. An
+  interrupted download continues where it stopped, and is still checked as a
+  whole.
 - **Files:** settings in `settings.json` in the OS config folder
   (`%APPDATA%\io.github.dec3n7.mutabor` on Windows), engines in
   `%LOCALAPPDATA%\io.github.dec3n7.mutabor\engines`. Results are written next
@@ -110,10 +113,12 @@ signature; if macOS calls the app "damaged", run
 ## Platform status
 
 - **Windows:** everything works.
-- **macOS:** no clipboard as a file source yet; no PDF actions (no MuPDF build).
+- **macOS:** no PDF actions (no MuPDF build). Reading copied files and pictures
+  from the clipboard is written but has not been tried on a real Mac yet.
 - **Linux:** the menu cannot see the file manager's selection (Nautilus,
-  Dolphin and others share no API for it), no clipboard as a source, no PDF
-  actions; the global hotkey needs X11.
+  Dolphin and others share no API for it), so copy the files and press the
+  hotkey: that reads the clipboard through `wl-paste` or `xclip`, and has not
+  been tried on a real desktop yet. No PDF actions; the global hotkey needs X11.
 
 ## Translations
 

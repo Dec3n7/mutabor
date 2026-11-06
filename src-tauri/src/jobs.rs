@@ -61,7 +61,8 @@ enum Event {
     Done { id: u64, output: String, before: u64, after: u64 },
     /// An engine finished downloading.
     Installed { id: u64 },
-    Failed { id: u64, message: String },
+    /// `code`: a readable reason when one is known; `message` stays for the tooltip.
+    Failed { id: u64, message: String, code: Option<&'static str> },
     Cancelled { id: u64 },
     /// Every job of the batch ended; `copied`: results are on the clipboard;
     /// `seconds`: from the start of the batch to the last job ending.
@@ -312,6 +313,8 @@ struct Step {
     cmd: Command,
     /// Parse ffmpeg's `-progress` output for percentages.
     ffmpeg: bool,
+    /// The program prints "12.5%" lines on stderr (Real-ESRGAN, whisper.cpp).
+    percent: bool,
 }
 
 /// The folder the inputs share, if they all sit in one.
@@ -352,6 +355,42 @@ fn expand(args: &[String], inputs: &[PathBuf], out: &Path, page: Option<u32>) ->
 
 /// Where a plan's input is converted to first, for tools that read only
 /// a few formats; next to the result, removed afterwards.
+/// A readable reason for a failure, from the program's own words. The Windows
+/// error numbers cover messages that are translated into the system language.
+fn friendly(message: &str) -> Option<&'static str> {
+    let m = message.to_lowercase();
+    let any = |words: &[&str]| words.iter().any(|w| m.contains(w));
+    if m == "not_a_picture" {
+        Some("not_a_picture")
+    } else if m.starts_with("download:") {
+        Some("network_failed")
+    } else if m.contains("sha-256 mismatch") {
+        Some("bad_download")
+    } else if any(&["no space left", "not enough space", "(os error 112)", "(os error 28)"]) {
+        Some("disk_full")
+    } else if any(&["out of memory", "cannot allocate memory", "bad_alloc", "vkallocatememory", "memory allocation of", "(os error 8)"]) {
+        Some("out_of_memory")
+    } else if any(&["vkcreateinstance", "vkcreatedevice", "invalid gpu", "vulkan", "vk_error"]) {
+        Some("no_vulkan")
+    } else if any(&["permission denied", "access is denied", "(os error 5)", "(os error 13)"]) {
+        Some("no_access")
+    } else {
+        None
+    }
+}
+
+fn failed(id: u64, message: String) -> Event {
+    Event::Failed { id, code: friendly(&message), message }
+}
+
+/// The number before the first `%` of a progress line such as "12.50%" or
+/// "whisper_print_progress_callback: progress =  25%".
+fn percent_in(line: &str) -> Option<f64> {
+    let end = line.find('%')?;
+    let digits = line[..end].bytes().rev().take_while(|b| b.is_ascii_digit() || *b == b'.').count();
+    line[end - digits..end].parse().ok()
+}
+
 fn converted_input(plan: &Plan, written: &Path) -> Option<PathBuf> {
     if plan.wav_input {
         Some(written.with_extension("mutabor-in.wav"))
@@ -458,7 +497,7 @@ impl Jobs {
             let id = self.next_id.fetch_add(1, Ordering::Relaxed);
             let name = group[0].file_name().unwrap_or_default().to_string_lossy().into_owned();
             let _ = app.emit_to(TOAST, "job", Event::Started { id, batch, name, steady: true });
-            let _ = app.emit_to(TOAST, "job", Event::Failed { id, message });
+            let _ = app.emit_to(TOAST, "job", failed(id, message));
         }
         // Recognised text is copied as text; "copy text" always copies.
         let plan_of = |j: &Job| match &j.work {
@@ -475,7 +514,11 @@ impl Jobs {
         let parallel = settings.parallel;
         for job in jobs {
             let name = job.inputs[0].file_name().unwrap_or_default().to_string_lossy().into_owned();
-            let steady = matches!(&job.work, Work::Plan { plan, .. } if plan.tool != Tool::Ffmpeg && !plan.per_page);
+            // These report a percentage; the toast shows a moving bar for the others.
+            let measured = |t: Tool| matches!(t, Tool::Ffmpeg | Tool::Matting | Tool::Upscaler | Tool::Whisper);
+            let steady = matches!(&job.work, Work::Plan { plan, .. } if !measured(plan.tool) && !plan.per_page);
+            // One at a time: each of them fills the graphics card or every core.
+            let heavy = matches!(&job.work, Work::Plan { plan, .. } if matches!(plan.tool, Tool::Matting | Tool::Upscaler | Tool::Whisper));
             self.running.lock().unwrap().insert(
                 job.id,
                 Running { batch, child: None, cancelled: job.cancelled.clone() },
@@ -483,7 +526,7 @@ impl Jobs {
             let _ = app.emit_to(TOAST, "job", Event::Started { id: job.id, batch, name, steady });
             let jobs = self.clone();
             let app = app.clone();
-            let limit = parallel.limit(job.kind);
+            let limit = if heavy { 1 } else { parallel.limit(job.kind) };
             std::thread::spawn(move || jobs.run_job(&app, job, limit));
         }
         Ok(())
@@ -585,7 +628,7 @@ impl Jobs {
             (None, _) if cancelled => Event::Cancelled { id: job.id },
             (None, Err(message)) => {
                 eprintln!("job {} failed: {message}", job.id);
-                Event::Failed { id: job.id, message }
+                failed(job.id, message)
             }
             (None, Ok(_)) => Event::Cancelled { id: job.id },
         };
@@ -634,6 +677,11 @@ impl Jobs {
             std::fs::create_dir(output).map_err(|e| e.to_string())?;
         }
         let mut result = self.work(app, id, plan, program, inputs, &written, duration, span);
+        // The converted copy sits next to the result: it must not stay behind
+        // when a step fails or is cancelled.
+        if let Some(copy) = converted_input(plan, &written) {
+            let _ = std::fs::remove_file(copy);
+        }
         if result.is_ok() {
             if let Some(Post::JpegToPdf(page)) = plan.post {
                 result = crate::pdf::convert(&written, output, page);
@@ -734,7 +782,7 @@ impl Jobs {
                     .args(&plan.args)
                     .args(["-progress", "pipe:1", "-nostats"])
                     .arg(written);
-                steps.push(Step { cmd, ffmpeg: true });
+                steps.push(Step { cmd, ffmpeg: true, percent: false });
             }
             _ => {
                 // Tools that read only common picture formats get a PNG copy.
@@ -748,7 +796,7 @@ impl Jobs {
                         cmd.args(["-frames:v", "1"]);
                     }
                     cmd.arg(&copy);
-                    self.run_step(app, id, Step { cmd, ffmpeg: false }, None, span)?;
+                    self.run_step(app, id, Step { cmd, ffmpeg: false, percent: false }, None, span)?;
                     converted = vec![copy];
                     &converted[..]
                 } else {
@@ -784,7 +832,8 @@ impl Jobs {
                     if let Some(dir) = inputs[0].parent() {
                         cmd.current_dir(dir);
                     }
-                    steps.push(Step { cmd, ffmpeg: false });
+                    let percent = matches!(plan.tool, Tool::Upscaler | Tool::Whisper);
+                    steps.push(Step { cmd, ffmpeg: false, percent });
                 }
             }
         }
@@ -794,7 +843,7 @@ impl Jobs {
                 .arg(written.join("page-%03d.png"))
                 .args(["-q:v", q.pick("2", "3", "6"), "-start_number", "1"])
                 .arg(written.join("page-%03d.jpg"));
-            steps.push(Step { cmd, ffmpeg: false });
+            steps.push(Step { cmd, ffmpeg: false, percent: false });
         }
 
         let total = steps.len();
@@ -804,9 +853,6 @@ impl Jobs {
             if total > 1 {
                 let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: part.1 });
             }
-        }
-        if let Some(copy) = converted_input(plan, written) {
-            let _ = std::fs::remove_file(copy);
         }
         if matches!(plan.post, Some(Post::PngPagesToJpg(_))) {
             for e in std::fs::read_dir(written).map_err(|e| e.to_string())?.flatten() {
@@ -843,7 +889,9 @@ impl Jobs {
             return Err(String::from_utf8_lossy(&small.stderr).trim().to_string());
         }
         let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: span.at(10) });
-        let mask = crate::matting::mask(model, &small.stdout)?;
+        let path = model.to_path_buf();
+        let rgb = small.stdout;
+        let mask = self.interruptible(app, id, span, (10, 90), 15.0, move || crate::matting::mask(&path, &rgb))?;
         let mask_file = written.with_extension("mutabor-mask.raw");
         std::fs::write(&mask_file, mask).map_err(|e| e.to_string())?;
         let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent: span.at(90) });
@@ -858,7 +906,7 @@ impl Jobs {
                 "-frames:v", "1", "-c:v", "png", "-map_metadata", "-1",
             ])
             .arg(written);
-        let result = self.run_step(app, id, Step { cmd, ffmpeg: false }, None, span);
+        let result = self.run_step(app, id, Step { cmd, ffmpeg: false, percent: false }, None, span);
         let _ = std::fs::remove_file(&mask_file);
         result
     }
@@ -895,8 +943,50 @@ impl Jobs {
         let ui = app.state::<crate::settings::Store>().get(app).language;
         let languages = crate::ocr::languages(lang, &ui);
         let tessdata = marker.parent().ok_or("no tessdata")?;
-        let text = crate::ocr::text(tessdata, &languages, &gray.stdout, w, h)?;
+        let tessdata = tessdata.to_path_buf();
+        let pixels = gray.stdout;
+        let text = self.interruptible(app, id, span, (20, 95), 5.0, move || crate::ocr::text(&tessdata, &languages, &pixels, w, h))?;
         std::fs::write(written, text).map_err(|e| e.to_string())
+    }
+
+    /// Runs in-process work on its own thread, because it cannot be killed like
+    /// a program. Cancelling answers at once and leaves the thread to finish on
+    /// its own; a panic in the model is reported as a failed job. The work says
+    /// nothing about its progress, so the bar eases towards `range.1` over
+    /// about `expected` seconds.
+    #[allow(clippy::too_many_arguments)]
+    fn interruptible<T: Send + 'static>(
+        &self,
+        app: &AppHandle,
+        id: u64,
+        span: Span,
+        range: (u8, u8),
+        expected: f64,
+        work: impl FnOnce() -> Result<T, String> + Send + 'static,
+    ) -> Result<T, String> {
+        use std::sync::mpsc::{channel, RecvTimeoutError};
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(work());
+        });
+        let started = Instant::now();
+        let mut last = 0u8;
+        loop {
+            match rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(result) => return result,
+                Err(RecvTimeoutError::Disconnected) => return Err("the worker stopped unexpectedly".into()),
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            if self.running.lock().unwrap().get(&id).is_none_or(|r| r.cancelled.load(Ordering::Relaxed)) {
+                return Err("cancelled".into());
+            }
+            let share = 1.0 - (-started.elapsed().as_secs_f64() / expected).exp();
+            let percent = span.at(range.0 + ((range.1 - range.0) as f64 * share) as u8);
+            if percent > last {
+                last = percent;
+                let _ = app.emit_to(TOAST, "job", Event::Progress { id, percent });
+            }
+        }
     }
 
     fn run_step(&self, app: &AppHandle, id: u64, mut step: Step, duration: Option<f64>, span: Span) -> Result<(), String> {
@@ -922,8 +1012,19 @@ impl Jobs {
         // Drain stderr so the program never blocks on a full pipe; keep the tail for errors.
         let tail = Arc::new(Mutex::new(VecDeque::<String>::new()));
         let tail_w = tail.clone();
+        let (reports_percent, report_app) = (step.percent, app.clone());
         let stderr_thread = std::thread::spawn(move || {
+            let mut shown = 0u8;
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Some(p) = percent_in(&line).filter(|_| reports_percent) {
+                    let percent = span.at(p.clamp(0.0, 100.0) as u8);
+                    if percent > shown {
+                        shown = percent;
+                        let _ = report_app.emit_to(TOAST, "job", Event::Progress { id, percent });
+                    }
+                    // Progress lines would push the real error out of the tail.
+                    continue;
+                }
                 let mut t = tail_w.lock().unwrap();
                 if t.len() == 8 {
                     t.pop_front();
@@ -984,7 +1085,7 @@ impl Jobs {
         let event = match &result {
             Ok(()) => Event::Installed { id },
             Err(_) if cancelled.load(Ordering::Relaxed) => Event::Cancelled { id },
-            Err(e) => Event::Failed { id, message: e.clone() },
+            Err(e) => failed(id, e.clone()),
         };
         let _ = app.emit_to(TOAST, "job", event);
         let _ = app.emit_to(TOAST, "job", Event::Finished { batch: id, copied: false, seconds: 0.0 });
@@ -1033,6 +1134,30 @@ impl Jobs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readable_failures() {
+        assert_eq!(friendly("vkCreateInstance failed -9"), Some("no_vulkan"));
+        assert_eq!(friendly("invalid gpu device"), Some("no_vulkan"));
+        assert_eq!(friendly("vkAllocateMemory failed -2"), Some("out_of_memory"));
+        assert_eq!(friendly("На диске недостаточно места. (os error 112)"), Some("disk_full"));
+        assert_eq!(friendly("Отказано в доступе. (os error 5)"), Some("no_access"));
+        assert_eq!(friendly("(os error 50)"), None);
+        assert_eq!(friendly("download: timed out"), Some("network_failed"));
+        assert_eq!(friendly("SHA-256 mismatch: expected a, got b"), Some("bad_download"));
+        assert_eq!(friendly("not_a_picture"), Some("not_a_picture"));
+        assert_eq!(friendly("Invalid data found when processing input"), None);
+    }
+
+    #[test]
+    fn progress_lines() {
+        assert_eq!(percent_in("12.50%"), Some(12.5));
+        assert_eq!(percent_in("whisper_print_progress_callback: progress =  25%"), Some(25.0));
+        assert_eq!(percent_in("100.00%"), Some(100.0));
+        assert_eq!(percent_in("no number here"), None);
+        assert_eq!(percent_in("%"), None);
+        assert_eq!(percent_in("прогресс 7%"), Some(7.0));
+    }
 
     #[test]
     fn output_names() {

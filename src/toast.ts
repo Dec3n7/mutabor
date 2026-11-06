@@ -12,7 +12,7 @@ type JobEvent =
   | { state: "progress"; id: number; percent: number }
   | { state: "done"; id: number; output: string; before: number; after: number }
   | { state: "installed"; id: number }
-  | { state: "failed"; id: number; message: string }
+  | { state: "failed"; id: number; message: string; code?: string | null }
   | { state: "cancelled"; id: number }
   | { state: "finished"; batch: number; copied: boolean; seconds: number }
   | { state: "notice"; message: string };
@@ -26,6 +26,8 @@ interface Job {
   before?: number;
   after?: number;
   message?: string;
+  /** A readable reason, when Rust recognised the failure. */
+  code?: string | null;
 }
 
 /** One card per batch (one menu choice), however many files it has. */
@@ -73,7 +75,10 @@ function actionName(action: string): string {
 /** Readable text for an error code; a program's own output stays in the tooltip. */
 function errorText(message: string): string {
   if (message.startsWith("engine_missing:")) return t("engine_missing", { engine: message.split(":")[1] });
-  const known = ["not_ready", "no_duration", "no_audio", "bad_range", "nothing_selected", "nothing_to_repeat", "folder_not_last", "hotkey_taken"];
+  const known = [
+    "not_ready", "no_duration", "no_audio", "bad_range", "nothing_selected", "nothing_to_repeat", "folder_not_last", "hotkey_taken",
+    "not_a_picture", "no_vulkan", "out_of_memory", "disk_full", "no_access", "network_failed", "bad_download",
+  ];
   return known.includes(message) ? t(message) : t("failed");
 }
 
@@ -122,7 +127,7 @@ function render(batch: number, card: Card) {
         : single.phase === "installed"
           ? t("engine_installed")
           : single.phase === "failed"
-            ? errorText(single.message ?? "")
+            ? errorText(single.code ?? single.message ?? "")
             : t("cancelled");
   } else if (single) {
     info = single.phase === "queued" ? t("queued") : single.steady ? t("converting") : `${t("converting")} ${single.percent}%`;
@@ -248,7 +253,7 @@ function handle(e: JobEvent) {
       job.phase = "installed";
       break;
     case "failed":
-      Object.assign(job, { phase: "failed", message: e.message });
+      Object.assign(job, { phase: "failed", message: e.message, code: e.code });
       break;
     case "cancelled":
       job.phase = "cancelled";

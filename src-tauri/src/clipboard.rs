@@ -37,6 +37,47 @@ pub fn read() -> Option<Copied> {
     imp::read()
 }
 
+/// Where a picture from the clipboard is saved.
+fn new_image_path() -> PathBuf {
+    let dir = image_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    dir.join(format!("clipboard-{stamp}.png"))
+}
+
+/// Local paths from a `text/uri-list`: comments and other schemes are skipped,
+/// `%20` and the like decoded, a host name after `file://` dropped.
+#[cfg(any(test, not(any(target_os = "windows", target_os = "macos"))))]
+fn paths_from_uris(list: &str) -> Vec<String> {
+    let decode = |path: &str| {
+        let bytes = path.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            let hex = (bytes[i] == b'%').then(|| path.get(i + 1..i + 3)).flatten();
+            match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                Some(b) => {
+                    out.push(b);
+                    i += 3;
+                }
+                None => {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            }
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    };
+    list.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| l.strip_prefix("file://"))
+        .filter_map(|l| l.find('/').map(|at| decode(&l[at..])))
+        .collect()
+}
+
 #[cfg(target_os = "windows")]
 mod imp {
     use super::*;
@@ -85,12 +126,7 @@ mod imp {
     }
 
     pub fn read() -> Option<Copied> {
-        let dir = image_dir();
-        let _ = std::fs::create_dir_all(&dir);
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        let png = dir.join(format!("clipboard-{stamp}.png"));
+        let png = new_image_path();
         let script = format!(
             "[Console]::OutputEncoding=[Text.Encoding]::UTF8; \
              Add-Type -AssemblyName System.Windows.Forms,System.Drawing; \
@@ -140,9 +176,39 @@ mod imp {
         if child.wait().is_ok_and(|s| s.success()) { Ok(()) } else { Err("pbcopy failed".into()) }
     }
 
-    // TODO: read copied Finder files and pictures («class furl», «class PNGf»).
+    /// AppleScript sees only the first of several copied files, so this asks
+    /// the pasteboard itself. Prints "files" and the paths, or "image".
+    const READ: &str = r#"
+ObjC.import('AppKit');
+function run(argv) {
+  const pb = $.NSPasteboard.generalPasteboard;
+  const only = $.NSDictionary.dictionaryWithObjectForKey($.NSNumber.numberWithBool(true), $.NSPasteboardURLReadingFileURLsOnlyKey);
+  const urls = pb.readObjectsForClassesOptions($.NSArray.arrayWithObject($.NSURL), only);
+  if (urls.count > 0) {
+    const out = ['files'];
+    for (let i = 0; i < urls.count; i++) out.push(ObjC.unwrap(urls.objectAtIndex(i).path));
+    return out.join('\n');
+  }
+  let png = pb.dataForType($.NSPasteboardTypePNG);
+  if (png.isNil()) {
+    const tiff = pb.dataForType($.NSPasteboardTypeTIFF);
+    if (tiff.isNil()) return '';
+    png = $.NSBitmapImageRep.imageRepWithData(tiff).representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $.NSDictionary.dictionary);
+  }
+  png.writeToFileAtomically(argv[0], true);
+  return 'image';
+}
+"#;
+
     pub fn read() -> Option<Copied> {
-        None
+        let png = new_image_path();
+        let out = Command::new("osascript").args(["-l", "JavaScript", "-e", READ]).arg(&png).output().ok()?;
+        let lines = crate::selection::lines(&out.stdout);
+        match lines.first().map(String::as_str) {
+            Some("files") => Some(Copied::Files(lines[1..].to_vec())),
+            Some("image") if png.is_file() => Some(Copied::Image(png)),
+            _ => None,
+        }
     }
 }
 
@@ -179,15 +245,42 @@ mod imp {
         Err("no wl-copy or xclip".into())
     }
 
-    // TODO: read text/uri-list and image/png from wl-paste or xclip.
+    /// What the clipboard holds in this format; Wayland first, then X11.
+    fn paste(mime: &str) -> Option<Vec<u8>> {
+        [
+            ("wl-paste", vec!["--no-newline", "--type", mime]),
+            ("xclip", vec!["-selection", "clipboard", "-o", "-t", mime]),
+        ]
+        .into_iter()
+        .find_map(|(cmd, args)| {
+            let out = Command::new(cmd).args(&args).stderr(Stdio::null()).output().ok()?;
+            (out.status.success() && !out.stdout.is_empty()).then_some(out.stdout)
+        })
+    }
+
     pub fn read() -> Option<Copied> {
-        None
+        let files = paste("text/uri-list").map_or(Vec::new(), |list| paths_from_uris(&String::from_utf8_lossy(&list)));
+        if !files.is_empty() {
+            return Some(Copied::Files(files));
+        }
+        let picture = paste("image/png")?;
+        let png = new_image_path();
+        std::fs::write(&png, picture).ok()?;
+        Some(Copied::Image(png))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uri_lists() {
+        let list = "# copied\r\nfile:///home/me/a%20b.txt\r\nfile://host/tmp/%D1%84.png\nhttps://example.com/x\n";
+        assert_eq!(paths_from_uris(list), vec!["/home/me/a b.txt", "/tmp/ф.png"]);
+        assert_eq!(paths_from_uris("file:///a%zz%2"), vec!["/a%zz%2"]);
+        assert!(paths_from_uris("").is_empty());
+    }
 
     /// Uses the real clipboard (overwrites it): `cargo test clipboard -- --ignored`.
     #[test]
