@@ -123,6 +123,8 @@ export default {
   settings: "Impostazioni",
   files_n: "{n} file",
   nothing_selected: "Seleziona dei file in Esplora file o nel Finder (oppure copia un file o uno screenshot) e premi di nuovo la scorciatoia.",
+  nothing_to_repeat: "Niente da ripetere: prima esegui un’azione.",
+  s_repeat_last: "Ripeti l’ultima azione",
   no_common: "Nessuna azione va bene per tutti i file selezionati.",
   not_supported_yet: "Questo tipo di file non è ancora supportato; arriverà in una prossima versione.",
   no_match: "Nessun risultato",

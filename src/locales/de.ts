@@ -123,6 +123,8 @@ export default {
   settings: "Einstellungen",
   files_n: "{n} Dateien",
   nothing_selected: "Wähle Dateien im Explorer oder Finder aus (oder kopiere eine Datei oder einen Screenshot) und drücke das Tastenkürzel erneut.",
+  nothing_to_repeat: "Noch nichts zu wiederholen: führe zuerst eine Aktion aus.",
+  s_repeat_last: "Letzte Aktion wiederholen",
   no_common: "Keine Aktion passt zu allen ausgewählten Dateien.",
   not_supported_yet: "Dieser Dateityp wird noch nicht unterstützt; er kommt in einer späteren Version.",
   no_match: "Keine Treffer",

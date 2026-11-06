@@ -14,7 +14,7 @@ type JobEvent =
   | { state: "installed"; id: number }
   | { state: "failed"; id: number; message: string }
   | { state: "cancelled"; id: number }
-  | { state: "finished"; batch: number; copied: boolean }
+  | { state: "finished"; batch: number; copied: boolean; seconds: number }
   | { state: "notice"; message: string };
 
 interface Job {
@@ -37,6 +37,8 @@ interface Card {
   finished: boolean;
   copied: boolean;
   undone: boolean;
+  /** Seconds from the start to the last job ending; shown for benchmarking. */
+  seconds?: number;
 }
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -71,7 +73,7 @@ function actionName(action: string): string {
 /** Readable text for an error code; a program's own output stays in the tooltip. */
 function errorText(message: string): string {
   if (message.startsWith("engine_missing:")) return t("engine_missing", { engine: message.split(":")[1] });
-  const known = ["not_ready", "no_duration", "no_audio", "bad_range", "nothing_selected", "folder_not_last", "hotkey_taken"];
+  const known = ["not_ready", "no_duration", "no_audio", "bad_range", "nothing_selected", "nothing_to_repeat", "folder_not_last", "hotkey_taken"];
   return known.includes(message) ? t(message) : t("failed");
 }
 
@@ -136,6 +138,8 @@ function render(batch: number, card: Card) {
     info = parts.join(" · ");
   }
   if (card.undone) info = t("undone");
+  if (card.finished && card.seconds !== undefined && card.action !== "engine" && ok > 0 && !card.undone)
+    info += ` · ${card.seconds.toFixed(1)} s`;
 
   const state = card.finished ? (ok > 0 && !card.undone ? " ok" : " bad") : "";
   card.el.className = "job" + state;
@@ -212,6 +216,7 @@ function handle(e: JobEvent) {
     if (!card) return;
     card.finished = true;
     card.copied = e.copied;
+    card.seconds = e.seconds;
     render(e.batch, card);
     scheduleHide();
     return;
@@ -293,5 +298,5 @@ if (inTauri) {
   handle({ state: "batch", batch: 2, action: "to_mp3", total: 1 });
   handle({ state: "started", id: 21, batch: 2, name: "song.flac", steady: false });
   handle({ state: "done", id: 21, output: "/tmp/song.mp3", before: 38_000_000, after: 6_400_000 });
-  handle({ state: "finished", batch: 2, copied: true });
+  handle({ state: "finished", batch: 2, copied: true, seconds: 12.4 });
 }

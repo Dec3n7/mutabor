@@ -124,6 +124,8 @@ export default {
   settings: "Settings",
   files_n: "{n} files",
   nothing_selected: "Select files in Explorer or Finder (or copy a file or a screenshot) and press the hotkey again.",
+  nothing_to_repeat: "Nothing to repeat yet: run an action first.",
+  s_repeat_last: "Repeat last action",
   no_common: "No actions fit all selected files.",
   not_supported_yet: "This file type isn't supported yet; it's coming in a later version.",
   no_match: "No matches",

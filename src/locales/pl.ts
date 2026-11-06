@@ -123,6 +123,8 @@ export default {
   settings: "Ustawienia",
   files_n: "Plików: {n}",
   nothing_selected: "Zaznacz pliki w Eksploratorze lub Finderze (albo skopiuj plik lub zrzut ekranu) i naciśnij skrót jeszcze raz.",
+  nothing_to_repeat: "Nie ma jeszcze czego powtórzyć: najpierw wykonaj akcję.",
+  s_repeat_last: "Powtórz ostatnią akcję",
   no_common: "Żadna akcja nie pasuje do wszystkich zaznaczonych plików.",
   not_supported_yet: "Ten typ pliku nie jest jeszcze obsługiwany; pojawi się w kolejnej wersji.",
   no_match: "Brak wyników",

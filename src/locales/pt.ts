@@ -123,6 +123,8 @@ export default {
   settings: "Configurações",
   files_n: "{n} arquivos",
   nothing_selected: "Selecione arquivos no Explorador ou no Finder (ou copie um arquivo ou uma captura de tela) e pressione o atalho de novo.",
+  nothing_to_repeat: "Nada para repetir ainda: execute uma ação primeiro.",
+  s_repeat_last: "Repetir a última ação",
   no_common: "Nenhuma ação serve para todos os arquivos selecionados.",
   not_supported_yet: "Este tipo de arquivo ainda não é suportado; virá em uma próxima versão.",
   no_match: "Nada encontrado",

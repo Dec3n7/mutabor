@@ -123,6 +123,8 @@ export default {
   settings: "Réglages",
   files_n: "{n} fichiers",
   nothing_selected: "Sélectionnez des fichiers dans l'Explorateur ou le Finder (ou copiez un fichier ou une capture d'écran) puis appuyez de nouveau sur le raccourci.",
+  nothing_to_repeat: "Rien à répéter pour l’instant : lancez d’abord une action.",
+  s_repeat_last: "Répéter la dernière action",
   no_common: "Aucune action ne convient à tous les fichiers sélectionnés.",
   not_supported_yet: "Ce type de fichier n'est pas encore pris en charge ; il arrivera dans une prochaine version.",
   no_match: "Aucun résultat",

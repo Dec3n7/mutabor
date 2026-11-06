@@ -123,6 +123,8 @@ export default {
   settings: "Ayarlar",
   files_n: "{n} dosya",
   nothing_selected: "Dosya Gezgini'nde veya Finder'da dosya seçin (ya da bir dosya veya ekran görüntüsü kopyalayın) ve kısayola yeniden basın.",
+  nothing_to_repeat: "Henüz tekrarlanacak bir şey yok: önce bir eylem çalıştırın.",
+  s_repeat_last: "Son eylemi tekrarla",
   no_common: "Seçili dosyaların hepsine uyan bir eylem yok.",
   not_supported_yet: "Bu dosya türü henüz desteklenmiyor; sonraki bir sürümde gelecek.",
   no_match: "Sonuç yok",

@@ -123,6 +123,8 @@ export default {
   settings: "설정",
   files_n: "파일 {n}개",
   nothing_selected: "탐색기나 Finder에서 파일을 선택하고(또는 파일이나 스크린샷을 복사하고) 단축키를 다시 누르세요.",
+  nothing_to_repeat: "아직 반복할 작업이 없습니다. 먼저 작업을 실행하세요.",
+  s_repeat_last: "마지막 작업 반복",
   no_common: "선택한 모든 파일에 맞는 작업이 없습니다.",
   not_supported_yet: "이 파일 형식은 아직 지원하지 않습니다. 이후 버전에서 추가될 예정입니다.",
   no_match: "결과 없음",

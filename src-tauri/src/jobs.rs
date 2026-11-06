@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
 pub const TOAST: &str = "toast";
@@ -34,6 +34,8 @@ struct Batch {
     copy: bool,
     /// The results are text files whose text, not the files, is copied.
     text: bool,
+    /// When the batch was started, for the time shown in the toast.
+    started: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -61,8 +63,9 @@ enum Event {
     Installed { id: u64 },
     Failed { id: u64, message: String },
     Cancelled { id: u64 },
-    /// Every job of the batch ended; `copied`: results are on the clipboard.
-    Finished { batch: u64, copied: bool },
+    /// Every job of the batch ended; `copied`: results are on the clipboard;
+    /// `seconds`: from the start of the batch to the last job ending.
+    Finished { batch: u64, copied: bool, seconds: f64 },
     /// A message without a job, e.g. a hotkey pressed with nothing selected.
     Notice { message: String },
 }
@@ -406,6 +409,7 @@ impl Jobs {
         opts: &Options,
         settings: &Settings,
     ) -> Result<(), String> {
+        let started = Instant::now();
         let mut inputs: Vec<PathBuf> = inputs.into_iter().map(PathBuf::from).collect();
         if inputs.is_empty() {
             return Err("nothing_selected".into());
@@ -466,7 +470,7 @@ impl Jobs {
         self.batches
             .lock()
             .unwrap()
-            .insert(batch, Batch { left: jobs.len(), outputs: Vec::new(), copy, text });
+            .insert(batch, Batch { left: jobs.len(), outputs: Vec::new(), copy, text, started: Some(started) });
 
         let parallel = settings.parallel;
         for job in jobs {
@@ -596,11 +600,15 @@ impl Jobs {
             let Some(b) = batches.get_mut(&batch) else { return };
             b.left = b.left.saturating_sub(1);
             b.outputs.extend(output);
-            (b.left == 0).then(|| (b.copy, b.text, b.outputs.clone()))
+            // Read the clock before copying, so the copy does not count.
+            (b.left == 0).then(|| {
+                let seconds = b.started.map_or(0.0, |s| s.elapsed().as_secs_f64());
+                (b.copy, b.text, b.outputs.clone(), seconds)
+            })
         };
-        if let Some((copy, text, outputs)) = done {
+        if let Some((copy, text, outputs, seconds)) = done {
             let copied = copy && !outputs.is_empty() && copy_outputs(&outputs, text).is_ok();
-            let _ = app.emit_to(TOAST, "job", Event::Finished { batch, copied });
+            let _ = app.emit_to(TOAST, "job", Event::Finished { batch, copied, seconds });
         }
     }
 
@@ -979,7 +987,7 @@ impl Jobs {
             Err(e) => Event::Failed { id, message: e.clone() },
         };
         let _ = app.emit_to(TOAST, "job", event);
-        let _ = app.emit_to(TOAST, "job", Event::Finished { batch: id, copied: false });
+        let _ = app.emit_to(TOAST, "job", Event::Finished { batch: id, copied: false, seconds: 0.0 });
         result
     }
 

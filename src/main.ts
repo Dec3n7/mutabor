@@ -79,7 +79,8 @@ function renderHeader() {
 function renderList() {
   const query = search.value.trim();
   const all = actionsFor(files, engines, settings.custom, fromClipboard());
-  const hint = query ? undefined : suggest(files, fromClipboard());
+  // A suggestion for these files wins; otherwise the action run last comes first.
+  const hint = query ? undefined : suggest(files, fromClipboard()) ?? (settings.last_action || undefined);
 
   quick.replaceChildren();
   if (!query) {

@@ -14,6 +14,8 @@ export interface Settings {
   parallel: Record<"video" | "audio" | "image" | "pdf" | "markup", number>;
   /** Action id (or "custom:<id>") -> shortcut. */
   hotkeys: Record<string, string>;
+  /** The action run last; "repeat" runs it again. */
+  last_action: string;
   custom: CustomAction[];
   check_updates: boolean;
   update_seen: string;
@@ -24,6 +26,9 @@ export interface Update {
   version: string;
   url: string;
 }
+
+/** The id that the "repeat last action" shortcut uses in `hotkeys`. */
+export const REPEAT = "repeat";
 
 export const isMac = navigator.userAgent.includes("Mac");
 
@@ -36,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   copy_result: false,
   parallel: { video: 2, audio: 4, image: 4, pdf: 2, markup: 2 },
   hotkeys: {},
+  last_action: "",
   custom: [],
   check_updates: true,
   update_seen: "",

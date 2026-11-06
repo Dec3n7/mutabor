@@ -17,7 +17,7 @@ import {
   setChip,
 } from "./actions";
 import { LANGUAGES, formatSize, setLanguage, t } from "./i18n";
-import { DEFAULT_SETTINGS, Settings, Update, isModifier, showHotkey, specOf } from "./prefs";
+import { DEFAULT_SETTINGS, REPEAT, Settings, Update, isModifier, showHotkey, specOf } from "./prefs";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const REPO = "https://github.com/Dec3n7/mutabor";
@@ -75,7 +75,7 @@ function allActions(): Action[] {
   return [...catalog(), ...settings.custom.map((c) => ({ id: `custom:${c.id}`, label: c.name }))];
 }
 
-const actionLabel = (id: string) => allActions().find((a) => a.id === id)?.label ?? t(id);
+const actionLabel = (id: string) => (id === REPEAT ? t("s_repeat_last") : allActions().find((a) => a.id === id)?.label ?? t(id));
 
 function render() {
   setLanguage(settings.language);
@@ -159,10 +159,12 @@ function renderActionHotkeys() {
     actionHotkeys.append(row);
   }
   hotkeyAction.replaceChildren();
-  for (const a of allActions().filter((a) => !settings.hotkeys[a.id])) {
+  const choices = allActions().filter((a) => !settings.hotkeys[a.id]).map((a) => ({ id: a.id, text: a.label ?? t(a.id) }));
+  if (!settings.hotkeys[REPEAT]) choices.unshift({ id: REPEAT, text: t("s_repeat_last") });
+  for (const c of choices) {
     const o = document.createElement("option");
-    o.value = a.id;
-    o.textContent = a.label ?? t(a.id);
+    o.value = c.id;
+    o.textContent = c.text;
     hotkeyAction.append(o);
   }
 }

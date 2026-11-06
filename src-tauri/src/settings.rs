@@ -26,8 +26,12 @@ pub struct Settings {
     /// How many files of each kind are converted at the same time.
     pub parallel: Parallel,
     /// Extra global shortcuts that run an action without the menu:
-    /// action id (or "custom:<id>") -> shortcut.
+    /// action id (or "custom:<id>") -> shortcut. The id "repeat" runs
+    /// `last_action` again.
     pub hotkeys: BTreeMap<String, String>,
+    /// The action run most recently, offered first in the menu and repeated
+    /// by the "repeat" shortcut. Empty until something has run.
+    pub last_action: String,
     /// The user's own actions: chains of steps.
     pub custom: Vec<CustomAction>,
     /// Ask GitHub once a day whether a newer version is out.
@@ -99,6 +103,9 @@ pub enum Step {
     Ffmpeg { ffmpeg: String, ext: String },
 }
 
+/// The pseudo action id of the "repeat last action" shortcut.
+pub const REPEAT: &str = "repeat";
+
 pub const DEFAULT_HOTKEY: &str = if cfg!(target_os = "macos") { "Super+Alt+KeyC" } else { "Control+Alt+KeyC" };
 
 impl Default for Settings {
@@ -112,6 +119,7 @@ impl Default for Settings {
             copy_result: false,
             parallel: Parallel::default(),
             hotkeys: BTreeMap::new(),
+            last_action: String::new(),
             custom: Vec::new(),
             check_updates: true,
             update_seen: String::new(),
@@ -200,6 +208,13 @@ mod tests {
         assert_eq!(s.options_for("to_mp4", None), chosen);
         s.remember = false;
         assert_eq!(s.options_for("to_mp4", None).height, None);
+    }
+
+    #[test]
+    fn last_action_starts_empty_and_loads() {
+        assert!(Settings::default().last_action.is_empty());
+        let s: Settings = serde_json::from_str(r#"{"last_action":"compress"}"#).unwrap();
+        assert_eq!(s.last_action, "compress");
     }
 
     #[test]

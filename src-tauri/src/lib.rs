@@ -85,17 +85,39 @@ fn open_menu(app: &AppHandle) {
 /// An action hotkey: runs the action on the selection without the menu,
 /// with the remembered or default options. Problems go to the toast.
 fn run_hotkey(app: &AppHandle, action: &str) {
+    let settings = app.state::<settings::Store>().get(app);
+    let action = if action == settings::REPEAT { settings.last_action.as_str() } else { action };
+    if action.is_empty() {
+        jobs::notice(app, "nothing_to_repeat");
+        return;
+    }
     let (files, _) = gather();
     if files.is_empty() {
         jobs::notice(app, "nothing_selected");
         return;
     }
-    let settings = app.state::<settings::Store>().get(app);
     let opts = settings.options_for(action, None);
     let paths = files.into_iter().map(|f| f.path).collect();
     let jobs = app.state::<Arc<jobs::Jobs>>().inner().clone();
-    if let Err(e) = jobs.start(app, action, paths, &opts, &settings) {
-        jobs::notice(app, &e);
+    match jobs.start(app, action, paths, &opts, &settings) {
+        Ok(()) => remember_action(app, action),
+        Err(e) => jobs::notice(app, &e),
+    }
+}
+
+/// Makes `action` the one "repeat" runs next, and the first row of the menu.
+fn remember_action(app: &AppHandle, action: &str) {
+    let store = app.state::<settings::Store>();
+    let mut next = store.get(app);
+    if next.last_action == action {
+        return;
+    }
+    next.last_action = action.into();
+    match store.save(app, next.clone()) {
+        Ok(()) => {
+            let _ = app.emit("settings", next);
+        }
+        Err(e) => eprintln!("settings: {e}"),
     }
 }
 
@@ -127,9 +149,15 @@ async fn run_action(
     }
     let settings = store.get(&app);
     let jobs = jobs.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || jobs.start(&app, &action, paths, &opts, &settings))
+    let name = action.clone();
+    let job_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || jobs.start(&job_app, &action, paths, &opts, &settings))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    if result.is_ok() {
+        remember_action(&app, &name);
+    }
+    result
 }
 
 #[tauri::command]

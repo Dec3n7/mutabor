@@ -123,6 +123,8 @@ export default {
   settings: "设置",
   files_n: "{n} 个文件",
   nothing_selected: "请在资源管理器或访达中选择文件（或复制文件、截图），然后再次按下快捷键。",
+  nothing_to_repeat: "还没有可重复的操作，请先执行一项操作。",
+  s_repeat_last: "重复上一次操作",
   no_common: "没有适用于所有已选文件的操作。",
   not_supported_yet: "暂不支持此文件类型，将在后续版本中加入。",
   no_match: "没有匹配项",
