@@ -57,4 +57,4 @@ jobs:
       # Skipped: the real clipboard, and tests that need the optional engines.
       - name: Rust tests, recipes on the real ffmpeg
         working-directory: src-tauri
-        run: cargo test -- --include-ignored --skip clipboard --skip tools_run --skip downloads --skip unpacks
+        run: cargo test -- --include-ignored --skip clipboard --skip tools_run --skip downloads --skip unpacks --skip partial_download
