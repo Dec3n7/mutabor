@@ -38,6 +38,11 @@ se toca.
   recortar un vídeo, quitarle el sonido, acelerarlo, sacar un fotograma.
 - **PDF.** Unir varios en uno, separar en páginas, convertir páginas en
   imágenes, hacer el archivo más ligero.
+- **IA en tu propio ordenador.** Quitar el fondo de una imagen, ampliarla cuatro
+  veces, sacar el texto de un escaneo o una captura, convertir la voz en
+  subtítulos o texto (voz: Windows y Linux).
+- **Archivos comprimidos.** Descomprimir ZIP, RAR, 7Z y otros, o empaquetar en
+  ZIP o 7Z.
 - **Muchos archivos a la vez.** Incluso una carpeta entera: se procesan por
   turnos, unos pocos a la vez.
 - **Directo al chat.** Al terminar, pulsa «Copiar» y luego Ctrl + V en
@@ -79,9 +84,9 @@ certificado de firma, así que el sistema no conoce al editor.
 
 - **Tus archivos se quedan en tu equipo.** No se sube nada, no hay cuentas ni
   rastreo.
-- **Los extras, solo cuando tú lo pides.** Algunas acciones de PDF y
-  libros electrónicos necesitan un componente gratuito adicional; Mutabor
-  muestra su tamaño y lo descarga solo si aceptas.
+- **Los extras, solo cuando tú lo pides.** Las acciones de PDF, libros
+  electrónicos, archivos comprimidos e IA necesitan componentes gratuitos
+  adicionales; Mutabor muestra su tamaño y los descarga solo si aceptas.
 - **Una comprobación discreta de actualizaciones.** Una vez al día Mutabor
   pregunta a GitHub el número de la última versión para avisarte cuando salga
   una nueva. Puedes desactivarlo en Ajustes.

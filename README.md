@@ -38,6 +38,10 @@ untouched.
   video, take the sound out, speed it up, grab a still frame.
 - **PDF.** Merge several into one, split into pages, turn pages into pictures,
   make the file smaller.
+- **AI on your own computer.** Remove a picture's background, make it four
+  times larger, pull the text out of a scan or screenshot, turn speech into
+  subtitles or text (speech: Windows and Linux).
+- **Archives.** Unpack ZIP, RAR, 7Z and more, or pack files into ZIP or 7Z.
 - **Many files at once.** Select a whole folder: they are processed one after
   another, a few at a time.
 - **Straight into a chat.** Press "Copy" when it's done, then Ctrl + V in
@@ -78,9 +82,9 @@ certificate yet, so your system doesn't know the publisher.
 
 - **Your files stay on your computer.** Nothing is uploaded, there is no
   account and no tracking.
-- **Extra components only when you ask.** Some PDF and e-book actions need an
-  extra free component; Mutabor shows its size and downloads it only after you
-  agree.
+- **Extra components only when you ask.** PDF, e-book, archive and AI actions
+  need extra free components; Mutabor shows the size and downloads them only
+  after you agree.
 - **A quiet update check.** Once a day Mutabor asks GitHub for the number of
   the latest version, so it can tell you when a new one is out. You can turn
   this off in Settings.
