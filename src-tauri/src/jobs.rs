@@ -383,12 +383,13 @@ fn failed(id: u64, message: String) -> Event {
     Event::Failed { id, code: friendly(&message), message }
 }
 
-/// The number before the first `%` of a progress line such as "12.50%" or
+/// The number before the first `%` of a progress line such as "12.50%", "12,50%"
+/// (Real-ESRGAN prints the system's decimal comma) or
 /// "whisper_print_progress_callback: progress =  25%".
 fn percent_in(line: &str) -> Option<f64> {
     let end = line.find('%')?;
-    let digits = line[..end].bytes().rev().take_while(|b| b.is_ascii_digit() || *b == b'.').count();
-    line[end - digits..end].parse().ok()
+    let digits = line[..end].bytes().rev().take_while(|b| b.is_ascii_digit() || *b == b'.' || *b == b',').count();
+    line[end - digits..end].replace(',', ".").parse().ok()
 }
 
 fn converted_input(plan: &Plan, written: &Path) -> Option<PathBuf> {
@@ -1152,6 +1153,7 @@ mod tests {
     #[test]
     fn progress_lines() {
         assert_eq!(percent_in("12.50%"), Some(12.5));
+        assert_eq!(percent_in("12,50%"), Some(12.5));
         assert_eq!(percent_in("whisper_print_progress_callback: progress =  25%"), Some(25.0));
         assert_eq!(percent_in("100.00%"), Some(100.0));
         assert_eq!(percent_in("no number here"), None);
