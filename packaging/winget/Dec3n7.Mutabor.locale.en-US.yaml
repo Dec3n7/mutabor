@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Dec3n7.Mutabor
-PackageVersion: 0.3.0
+PackageVersion: 0.5.0
 PackageLocale: en-US
 Publisher: Dec3n7
 PublisherUrl: https://github.com/Dec3n7

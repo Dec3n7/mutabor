@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: Dec3n7.Mutabor
-PackageVersion: 0.3.0
+PackageVersion: 0.5.0
 InstallerLocale: en-US
 InstallerType: nullsoft
 Scope: user
 UpgradeBehavior: install
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/Dec3n7/mutabor/releases/download/v0.3.0/Mutabor_0.3.0_x64-setup.exe
-    InstallerSha256: ADFC67266EF19C306F412F3CB69D2E4F471603AB7A3ADD996BFFC8ADE76DFFEB
+    InstallerUrl: https://github.com/Dec3n7/mutabor/releases/download/v0.5.0/Mutabor_0.5.0_x64-setup.exe
+    InstallerSha256: 18C047229F3323A311C19784A4479331F6B01001EE7068BDE5ABCBAFBFABC073
 ManifestType: installer
 ManifestVersion: 1.6.0
