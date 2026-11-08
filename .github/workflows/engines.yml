@@ -1,0 +1,56 @@
+# Downloads an optional engine from its real source on every system and uses
+# it, as the app would. Too heavy for every push (LibreOffice is 210–360 MB),
+# so it runs by hand: Actions → Engines → Run workflow, or
+# `gh workflow run engines.yml --ref <branch>`.
+
+name: Engines
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  libreoffice:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.tesseract-rs
+            ~/Library/Application Support/tesseract-rs
+            ~/AppData/Roaming/tesseract-rs
+          key: tesseract-rs-0.4.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
+
+      - run: npm ci
+
+      - name: Fetch ffmpeg (the build needs it)
+        run: npm run tools
+
+      - name: Download, unpack and convert with LibreOffice
+        working-directory: src-tauri
+        run: cargo test --lib downloads_unpacks_and_converts_with_libreoffice -- --ignored --nocapture

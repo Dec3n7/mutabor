@@ -34,7 +34,11 @@ cargo test -- --ignored       # every recipe on the real programs
 npm run check-locales         # every language file against English
 ```
 
-CI runs the same on Windows, macOS and Linux for every push.
+CI runs the same on Windows, macOS and Linux for every push, except the tests
+that download engines. The LibreOffice test downloads 210–360 MB; skip it with
+`--skip libreoffice`, or point `MUTABOR_LIBREOFFICE` at an archive you already
+have. The [Engines workflow](../.github/workflows/engines.yml) runs it on all
+three systems.
 
 ## How it works
 
@@ -58,6 +62,14 @@ CI runs the same on Windows, macOS and Linux for every push.
   | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) | b5454 | MIT | 9–10 MB + 181 MB model | Windows, Linux |
   | Background removal: the [IS-Net](https://github.com/xuebinqin/DIS) model, run inside the app by [tract](https://github.com/sonos/tract) | isnet-general-use | Apache-2.0 | 170 MB model | Windows, macOS, Linux |
   | Text recognition: [Tesseract](https://github.com/tesseract-ocr/tesseract) 5.5, compiled into the app by [tesseract-rs](https://github.com/cafercangundogdu/tesseract-rs) | tessdata_fast | Apache-2.0 | 35 MB of language files | Windows, macOS, Linux |
+  | [LibreOffice](https://www.libreoffice.org), run headless | 26.2.7 | MPL-2.0 | 210–360 MB | Windows, macOS, Linux (x86-64) |
+
+  LibreOffice is unpacked, never installed: on Windows its MSI goes through
+  an administrative install (`msiexec /a`, which only copies files, needs no
+  admin rights and leaves no registry entries); on macOS the disk image is
+  mounted read-only with `hdiutil` and the app copied out; on Linux the
+  Debian packages are opened in place. It keeps its settings inside the engine
+  folder, so a LibreOffice you installed yourself is not touched.
 
 - **Third-party binaries are never committed.** Their source URL, version and
   SHA-256 live in [`tools/manifest.json`](../tools/manifest.json). The build
@@ -78,7 +90,9 @@ CI runs the same on Windows, macOS and Linux for every push.
   for permission to control Finder.
 - **Network:** engines are downloaded only when you press "Download", and
   only from the address in `tools/manifest.json` (GitHub for most of them,
-  mupdf.com for MuPDF, Hugging Face for the speech model). Once a day, unless
+  mupdf.com for MuPDF, Hugging Face for the speech model,
+  download.documentfoundation.org for LibreOffice, which hands the download to
+  a nearby mirror; the SHA-256 check is the same). Once a day, unless
   turned off in Settings, the app reads
   `api.github.com/repos/Dec3n7/mutabor/releases/latest` to see whether a newer
   version is out (`src-tauri/src/updates.rs`); nothing else is sent. No

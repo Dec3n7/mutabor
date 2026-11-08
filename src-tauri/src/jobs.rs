@@ -224,6 +224,21 @@ fn size_of(p: &Path) -> u64 {
     }
 }
 
+/// `file:///C:/Users/...` for LibreOffice's -env: options; everything but
+/// plain letters, digits and path signs is percent-encoded (UTF-8).
+pub(crate) fn file_url(p: &Path) -> String {
+    let path = p.to_string_lossy().replace('\\', "/");
+    let mut out = String::from(if path.starts_with('/') { "file://" } else { "file:///" });
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"/:-._~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 fn remove(p: &Path) {
     if p.is_dir() {
         let _ = std::fs::remove_dir_all(p);
@@ -519,7 +534,8 @@ impl Jobs {
             let measured = |t: Tool| matches!(t, Tool::Ffmpeg | Tool::Matting | Tool::Upscaler | Tool::Whisper);
             let steady = matches!(&job.work, Work::Plan { plan, .. } if !measured(plan.tool) && !plan.per_page);
             // One at a time: each of them fills the graphics card or every core.
-            let heavy = matches!(&job.work, Work::Plan { plan, .. } if matches!(plan.tool, Tool::Matting | Tool::Upscaler | Tool::Whisper));
+            // LibreOffice also keeps one settings folder, which two copies cannot share.
+            let heavy = matches!(&job.work, Work::Plan { plan, .. } if matches!(plan.tool, Tool::Matting | Tool::Upscaler | Tool::Whisper | Tool::Office));
             self.running.lock().unwrap().insert(
                 job.id,
                 Running { batch, child: None, cancelled: job.cancelled.clone() },
@@ -774,6 +790,7 @@ impl Jobs {
         match plan.tool {
             Tool::Matting => return self.remove_background(app, id, program, &inputs[0], written, span),
             Tool::Ocr => return self.recognize_text(app, id, program, &plan.args[0], &inputs[0], written, span),
+            Tool::Office => return self.convert_office(app, id, program, &plan.args[0], &inputs[0], written, span),
             Tool::Ffmpeg => {
                 let mut cmd = ffmpeg();
                 cmd.args(["-hide_banner", "-nostdin", "-n"])
@@ -863,6 +880,48 @@ impl Jobs {
             }
         }
         Ok(())
+    }
+
+    /// LibreOffice names its result after the input, in a folder of its own
+    /// choosing: it writes into a hidden folder next to the result, and the
+    /// file is then moved into place. It keeps its settings inside the engine
+    /// folder, apart from a LibreOffice the user may have installed.
+    #[allow(clippy::too_many_arguments)]
+    fn convert_office(
+        &self,
+        app: &AppHandle,
+        id: u64,
+        program: &Path,
+        filter: &str,
+        input: &Path,
+        written: &Path,
+        span: Span,
+    ) -> Result<(), String> {
+        let profile = crate::engines::dir(app, "libreoffice").ok_or("engine_missing:libreoffice")?.join("mutabor-profile");
+        let outdir = written.with_file_name(format!(".mutabor-office-{id}"));
+        let _ = std::fs::remove_dir_all(&outdir);
+        std::fs::create_dir_all(&outdir).map_err(|e| e.to_string())?;
+        let result = (|| {
+            let mut cmd = command(program);
+            cmd.args(["--headless", "--invisible", "--norestore", "--nolockcheck", "--nodefault", "--nologo"])
+                .arg(format!("-env:UserInstallation={}", file_url(&profile)))
+                .arg("--convert-to")
+                .arg(filter)
+                .arg("--outdir")
+                .arg(&outdir)
+                .arg(input);
+            self.run_step(app, id, Step { cmd, ffmpeg: false, percent: false }, None, span)?;
+            // LibreOffice exits with 0 even when it could not read the file.
+            let made = std::fs::read_dir(&outdir)
+                .map_err(|e| e.to_string())?
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| p.is_file())
+                .ok_or("LibreOffice could not convert this file")?;
+            std::fs::rename(&made, written).map_err(|e| e.to_string())
+        })();
+        let _ = std::fs::remove_dir_all(&outdir);
+        result
     }
 
     /// ffmpeg shrinks the picture for the model, the model (in-process) finds
@@ -1148,6 +1207,12 @@ mod tests {
         assert_eq!(friendly("SHA-256 mismatch: expected a, got b"), Some("bad_download"));
         assert_eq!(friendly("not_a_picture"), Some("not_a_picture"));
         assert_eq!(friendly("Invalid data found when processing input"), None);
+    }
+
+    #[test]
+    fn file_urls() {
+        assert_eq!(file_url(Path::new(r"C:\Users\Аня B\p")), "file:///C:/Users/%D0%90%D0%BD%D1%8F%20B/p");
+        assert_eq!(file_url(Path::new("/home/a/p")), "file:///home/a/p");
     }
 
     #[test]

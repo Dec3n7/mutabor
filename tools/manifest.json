@@ -352,6 +352,52 @@
       }
     ]
   },
+  "libreoffice": {
+    "purpose": "Word, Excel and PowerPoint: to PDF and between formats",
+    "license": "MPL-2.0",
+    "version": "26.2.7",
+    "optional": true,
+    "title": "LibreOffice",
+    "builds": {
+      "x86_64-pc-windows-msvc": {
+        "source": "Official release, https://www.libreoffice.org/download/download-libreoffice/; the address hands the download to a nearby mirror, hashes from download.documentfoundation.org",
+        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.7/win/x86_64/LibreOffice_26.2.7_Win_x86-64.msi",
+        "sha256": "480fecf759fc6393bd614fbf43753eb95a8198fc1a065d41b727e3b664cd1e59",
+        "size": 373121024,
+        "keep": true,
+        "files": {
+          "program/soffice.exe": "soffice"
+        }
+      },
+      "aarch64-apple-darwin": {
+        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.7/mac/aarch64/LibreOffice_26.2.7_MacOS_aarch64.dmg",
+        "sha256": "58601808ae2b919c82dc7c4d6a26389de0e167f344ca48e5b6c9189218eb95ae",
+        "size": 297813809,
+        "keep": true,
+        "files": {
+          "LibreOffice.app/Contents/MacOS/soffice": "soffice"
+        }
+      },
+      "x86_64-apple-darwin": {
+        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.7/mac/x86_64/LibreOffice_26.2.7_MacOS_x86-64.dmg",
+        "sha256": "26a830205c617cc624b2a83783ef46434a4d6c337c3a873f79c43012171f83de",
+        "size": 308070986,
+        "keep": true,
+        "files": {
+          "LibreOffice.app/Contents/MacOS/soffice": "soffice"
+        }
+      },
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.7/deb/x86_64/LibreOffice_26.2.7_Linux_x86-64_deb.tar.gz",
+        "sha256": "8cd04a88396a9230264ff784ec89cc090cbfd0960c192483ba2b80fa53939416",
+        "size": 218569368,
+        "keep": true,
+        "files": {
+          "program/soffice": "soffice"
+        }
+      }
+    }
+  },
   "planned": {
     "$comment": "Filled in when each engine is integrated; MuPDF has no official macOS or Linux build yet.",
     "libvips": "images, HEIC, SVG (LGPL-2.1) https://github.com/libvips/libvips/releases"

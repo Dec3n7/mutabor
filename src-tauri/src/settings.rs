@@ -72,7 +72,7 @@ impl Parallel {
             Kind::Audio => self.audio,
             Kind::Image => self.image,
             Kind::Pdf => self.pdf,
-            Kind::Markup | Kind::Archive | Kind::Unknown => self.markup,
+            Kind::Markup | Kind::Office | Kind::Archive | Kind::Unknown => self.markup,
         };
         n.clamp(1, 32) as usize
     }

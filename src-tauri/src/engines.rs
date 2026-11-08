@@ -359,8 +359,20 @@ fn finish(to: &Path, hasher: &mut Sha256, sha256: &str) -> Result<(), String> {
 
 /// bsdtar reads zip, tar.gz, tar.xz and 7-Zip (7-Zip's own installer, too);
 /// it ships with Windows 10+ and macOS. On Linux, tarballs go to GNU tar and
-/// zips to unzip.
+/// zips to unzip. LibreOffice comes as an MSI (Windows), a disk image (macOS)
+/// or Debian packages in a tarball (Linux); none of them is installed, they
+/// are only unpacked into the engine folder.
 fn extract(archive: &Path, into: &Path) -> Result<(), String> {
+    match archive.extension().and_then(|e| e.to_str()) {
+        Some("msi") => return unpack_msi(archive, into),
+        Some("dmg") => return unpack_dmg(archive, into),
+        _ => {}
+    }
+    untar(archive, into)?;
+    unpack_debs(into)
+}
+
+fn untar(archive: &Path, into: &Path) -> Result<(), String> {
     // GNU tar on Linux does not read zip.
     if cfg!(target_os = "linux") && archive.extension().is_some_and(|e| e == "zip") {
         let out = Command::new("unzip").arg("-q").arg("-o").arg(archive).arg("-d").arg(into).output();
@@ -389,6 +401,129 @@ fn extract(archive: &Path, into: &Path) -> Result<(), String> {
         return Err(format!("tar: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
     Ok(())
+}
+
+/// An administrative install: msiexec only copies the files out, with no
+/// registry entries, shortcuts or admin rights. It puts the bundled fonts
+/// where Windows keeps fonts and the C++ runtime where System32 would be, so
+/// both are moved to where LibreOffice looks for them.
+#[cfg(windows)]
+fn unpack_msi(archive: &Path, into: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let out = Command::new("msiexec")
+        .arg("/a")
+        .arg(archive)
+        .arg("/qn")
+        // msiexec wants the quotes around the value only, not the whole argument.
+        .raw_arg(format!("TARGETDIR=\"{}\"", into.display()))
+        .creation_flags(0x0800_0000)
+        .output()
+        .map_err(|e| format!("msiexec: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("msiexec: exit code {}", out.status.code().unwrap_or(-1)));
+    }
+    let fonts = into.join("Fonts");
+    if fonts.is_dir() {
+        let to = into.join("share").join("fonts").join("truetype");
+        std::fs::create_dir_all(into.join("share").join("fonts")).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_dir_all(&to);
+        std::fs::rename(&fonts, &to).map_err(|e| e.to_string())?;
+    }
+    if let Ok(dlls) = std::fs::read_dir(into.join("System64")) {
+        for dll in dlls.flatten() {
+            let to = into.join("program").join(dll.file_name());
+            if !to.exists() {
+                std::fs::copy(dll.path(), to).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    for leftover in ["System", "System64"] {
+        let _ = std::fs::remove_dir_all(into.join(leftover));
+    }
+    if let Some(name) = archive.file_name() {
+        let _ = std::fs::remove_file(into.join(name));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn unpack_msi(_: &Path, _: &Path) -> Result<(), String> {
+    Err("an MSI can only be unpacked on Windows".into())
+}
+
+/// Mounts the disk image read-only and out of sight, copies the app out.
+fn unpack_dmg(archive: &Path, into: &Path) -> Result<(), String> {
+    let mount = into.join(".mount");
+    std::fs::create_dir_all(&mount).map_err(|e| e.to_string())?;
+    let run = |cmd: &mut Command, what: &str| -> Result<(), String> {
+        let out = cmd.output().map_err(|e| format!("{what}: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("{what}: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        }
+        Ok(())
+    };
+    run(
+        Command::new("hdiutil").args(["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint"]).arg(&mount).arg(archive),
+        "hdiutil",
+    )?;
+    let copied = (|| {
+        let app = std::fs::read_dir(&mount)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "app"))
+            .ok_or("no app in the disk image")?;
+        run(Command::new("ditto").arg(&app).arg(into.join(app.file_name().unwrap_or_default())), "ditto")
+    })();
+    let _ = Command::new("hdiutil").args(["detach", "-force"]).arg(&mount).output();
+    let _ = std::fs::remove_dir(&mount);
+    copied
+}
+
+/// Debian packages found in the unpacked tarball are opened in place: each
+/// is an `ar` archive whose `data.tar.*` member holds the files.
+fn unpack_debs(into: &Path) -> Result<(), String> {
+    fn debs(dir: &Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                debs(&p, out);
+            } else if p.extension().is_some_and(|x| x == "deb") {
+                out.push(p);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    debs(into, &mut found);
+    for deb in found {
+        let bytes = std::fs::read(&deb).map_err(|e| e.to_string())?;
+        let (name, data) = deb_data(&bytes).ok_or_else(|| format!("{} is not a Debian package", deb.display()))?;
+        let member = into.join(name);
+        std::fs::write(&member, data).map_err(|e| e.to_string())?;
+        drop(bytes);
+        let result = untar(&member, into);
+        let _ = std::fs::remove_file(&member);
+        result?;
+        let _ = std::fs::remove_file(&deb);
+    }
+    Ok(())
+}
+
+/// The `data.tar.*` member of a Debian package (an `ar` archive): its name and bytes.
+fn deb_data(deb: &[u8]) -> Option<(&str, &[u8])> {
+    let mut rest = deb.strip_prefix(b"!<arch>\n")?;
+    while rest.len() >= 60 {
+        let (head, body) = rest.split_at(60);
+        let name = std::str::from_utf8(&head[..16]).ok()?.trim_end().trim_end_matches('/');
+        let size: usize = std::str::from_utf8(&head[48..58]).ok()?.trim().parse().ok()?;
+        let data = body.get(..size)?;
+        if name.starts_with("data.tar") {
+            return Some((name, data));
+        }
+        // Members start on even offsets.
+        rest = body.get(size + size % 2..).unwrap_or_default();
+    }
+    None
 }
 
 /// Finds `rel` (e.g. "bin/pandoc") under `dir`, whatever top folder the archive has.
@@ -421,6 +556,87 @@ mod tests {
             assert!(find(&into, rel).is_some(), "{rel} not found");
         }
         let _ = std::fs::remove_dir_all(&into);
+    }
+
+    /// An `ar` archive as `dpkg-deb` writes it, with an odd-sized member
+    /// before the data, so the padding byte is skipped.
+    #[test]
+    fn finds_the_data_of_a_debian_package() {
+        let member = |name: &str, body: &[u8]| {
+            let mut m = format!("{name:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n", 0, 0, 0, 100644, body.len()).into_bytes();
+            m.extend_from_slice(body);
+            if body.len() % 2 == 1 {
+                m.push(b'\n');
+            }
+            m
+        };
+        let mut deb = b"!<arch>\n".to_vec();
+        deb.extend(member("debian-binary", b"2.0\n"));
+        deb.extend(member("control.tar.xz", b"abc"));
+        deb.extend(member("data.tar.xz", b"files"));
+        assert_eq!(deb_data(&deb), Some(("data.tar.xz", &b"files"[..])));
+        assert_eq!(deb_data(b"not an archive"), None);
+    }
+
+    /// The whole LibreOffice path on this system: download (or the file named
+    /// by MUTABOR_LIBREOFFICE), unpack as `install` does, convert a text and a
+    /// table. Run by the "Engines" workflow on GitHub for every system.
+    #[test]
+    #[ignore]
+    fn downloads_unpacks_and_converts_with_libreoffice() {
+        let tool = &tools()["libreoffice"];
+        let build = &tool.builds[TARGET];
+        let archive = match std::env::var("MUTABOR_LIBREOFFICE") {
+            Ok(path) => PathBuf::from(path),
+            Err(_) => {
+                let to = std::env::temp_dir().join(build.url.rsplit('/').next().unwrap());
+                download(&build.url, &to, &build.sha256, build.size, &AtomicBool::new(false), &mut |_| {}).unwrap();
+                to
+            }
+        };
+        let mut hasher = Sha256::new();
+        hash_file(&archive, &mut hasher).unwrap();
+        let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(actual, build.sha256);
+
+        let root = std::env::temp_dir().join("mutabor-libreoffice");
+        let _ = std::fs::remove_dir_all(&root);
+        let into = root.join("engine");
+        std::fs::create_dir_all(&into).unwrap();
+        extract(&archive, &into).unwrap();
+        let soffice = build.locate(&into, "soffice").expect("soffice in the unpacked files");
+        if cfg!(windows) {
+            assert!(into.join("share/fonts/truetype").is_dir(), "bundled fonts moved");
+            assert!(into.join("program/vcruntime140.dll").is_file(), "C++ runtime next to the program");
+        }
+
+        let input = root.join("in");
+        std::fs::create_dir_all(&input).unwrap();
+        // "Привет" in RTF's Unicode escapes, and a UTF-8 table.
+        let rtf = r"{\rtf1\ansi{\fonttbl{\f0 Liberation Serif;}}\f0 ၕ?ႈ?ႀ?ၴ?ၷ?႐?, Mutabor.\par}";
+        std::fs::write(input.join("letter.rtf"), rtf).unwrap();
+        std::fs::write(input.join("table.csv"), "Имя,Число\nАня,1\nБорис,2\n").unwrap();
+        let out = root.join("out");
+        let profile = crate::jobs::file_url(&root.join("profile"));
+        for (file, filter, made) in [
+            ("letter.rtf", "pdf", "letter.pdf"),
+            ("letter.rtf", "docx:MS Word 2007 XML", "letter.docx"),
+            ("table.csv", "xlsx:Calc MS Excel 2007 XML", "table.xlsx"),
+        ] {
+            let status = Command::new(&soffice)
+                .args(["--headless", "--invisible", "--norestore", "--nolockcheck", "--nodefault", "--nologo"])
+                .arg(format!("-env:UserInstallation={profile}"))
+                .args(["--convert-to", filter, "--outdir"])
+                .arg(&out)
+                .arg(input.join(file))
+                .status()
+                .unwrap();
+            assert!(status.success(), "{file} -> {filter}: {status}");
+            let bytes = std::fs::read(out.join(made)).unwrap_or_else(|e| panic!("{made}: {e}"));
+            let magic: &[u8] = if made.ends_with(".pdf") { b"%PDF" } else { b"PK" };
+            assert!(bytes.starts_with(magic), "{made} is not what it should be");
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Serves the archive `npm run tools -- --optional` left in .cache from a

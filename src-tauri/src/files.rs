@@ -10,6 +10,8 @@ pub enum Kind {
     Image,
     Pdf,
     Markup,
+    /// Word, Excel and PowerPoint files and their LibreOffice counterparts.
+    Office,
     Archive,
     Unknown,
 }
@@ -30,7 +32,8 @@ pub fn kind_of(ext: &str) -> Kind {
         "jpg" | "jpeg" | "png" | "webp" | "avif" | "gif" | "bmp" | "tif" | "tiff" | "ico"
         | "heic" | "heif" | "svg" => Kind::Image,
         "pdf" => Kind::Pdf,
-        "md" | "markdown" | "html" | "htm" | "epub" | "fb2" | "txt" | "docx" => Kind::Markup,
+        "md" | "markdown" | "html" | "htm" | "epub" | "fb2" | "txt" => Kind::Markup,
+        "doc" | "docx" | "odt" | "rtf" | "xls" | "xlsx" | "ods" | "csv" | "ppt" | "pptx" | "odp" => Kind::Office,
         "zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "iso" | "cab" | "arj" | "lzh" => Kind::Archive,
         _ => Kind::Unknown,
     }
@@ -82,6 +85,8 @@ mod tests {
         assert_eq!(kind_of("heic"), Kind::Image);
         assert_eq!(kind_of("ogg"), Kind::Audio);
         assert_eq!(kind_of("pdf"), Kind::Pdf);
+        assert_eq!(kind_of("docx"), Kind::Office);
+        assert_eq!(kind_of("pptx"), Kind::Office);
         assert_eq!(kind_of("xyz"), Kind::Unknown);
     }
 

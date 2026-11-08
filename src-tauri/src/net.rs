@@ -81,7 +81,8 @@ mod tests {
     /// talks only to these hosts. A new address has to be added here on purpose.
     const APP_HOSTS: [&str; 2] = ["api.github.com", "github.com"];
     /// ffmpeg.martin-riedl.de is only used at build time, by scripts/fetch-tools.mjs.
-    const DOWNLOAD_HOSTS: [&str; 4] = ["github.com", "casper.mupdf.com", "huggingface.co", "ffmpeg.martin-riedl.de"];
+    const DOWNLOAD_HOSTS: [&str; 5] =
+        ["github.com", "casper.mupdf.com", "huggingface.co", "download.documentfoundation.org", "ffmpeg.martin-riedl.de"];
 
     fn hosts_in(text: &str) -> Vec<String> {
         text.match_indices("://")

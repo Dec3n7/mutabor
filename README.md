@@ -42,6 +42,8 @@ untouched.
   times larger, pull the text out of a scan or screenshot, turn speech into
   subtitles or text (speech: Windows and Linux).
 - **Archives.** Unpack ZIP, RAR, 7Z and more, or pack files into ZIP or 7Z.
+- **Office documents.** Word, Excel and PowerPoint to PDF, old DOC, XLS and
+  PPT to today's formats, a table to CSV.
 - **Many files at once.** Select a whole folder: they are processed one after
   another, a few at a time.
 - **Straight into a chat.** Press "Copy" when it's done, then Ctrl + V in
@@ -50,8 +52,6 @@ untouched.
   file or convert it.
 - **Your own shortcuts.** Give any action its own key, or chain several actions
   into one ("remove sound, then shrink to 8 MB").
-
-Word, Excel and PowerPoint files are not supported.
 
 ## Install
 
@@ -82,7 +82,7 @@ certificate yet, so your system doesn't know the publisher.
 
 - **Your files stay on your computer.** Nothing is uploaded, there is no
   account and no tracking.
-- **Extra components only when you ask.** PDF, e-book, archive and AI actions
+- **Extra components only when you ask.** PDF, office, e-book, archive and AI actions
   need extra free components; Mutabor shows the size and downloads them only
   after you agree.
 - **A quiet update check.** Once a day Mutabor asks GitHub for the number of

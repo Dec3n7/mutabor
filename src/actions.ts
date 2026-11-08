@@ -1,6 +1,6 @@
 // Catalog of menu actions per file kind. Labels live in i18n.ts.
 
-export type Kind = "video" | "audio" | "image" | "pdf" | "markup" | "archive" | "unknown";
+export type Kind = "video" | "audio" | "image" | "pdf" | "markup" | "office" | "archive" | "unknown";
 
 export interface FileInfo {
   path: string;
@@ -23,7 +23,9 @@ export interface Action {
   /** Always opens the submenu: running without choices makes no sense. */
   ask?: boolean;
   /** Optional engine the action needs; downloaded on first use. */
-  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan" | "whisper" | "bgremove" | "ocr";
+  engine?: "mupdf" | "pandoc" | "sevenzip" | "realesrgan" | "whisper" | "bgremove" | "ocr" | "libreoffice";
+  /** Offered only when every selected file has one of these extensions. */
+  only?: string[];
   /** Works on the whole selection at once and needs at least two files. */
   multi?: boolean;
   /** Short button text for quick actions; the full label becomes a tooltip. */
@@ -172,6 +174,17 @@ const PACK: Action[] = [
   { id: "pack_7z", keywords: "7z архив упаковать archive", engine: "sevenzip" },
 ];
 
+/** Office files by the LibreOffice program that reads them. */
+const TEXTS = ["doc", "docx", "odt", "rtf"];
+const TABLES = ["xls", "xlsx", "ods", "csv"];
+const SLIDES = ["ppt", "pptx", "odp"];
+
+const office = (ext: string, only: string[], keywords = ""): Action => ({
+  ...convert(ext, keywords),
+  engine: "libreoffice",
+  only,
+});
+
 export const ACTIONS: Record<Kind, Action[]> = {
   video: [
     convert("gif", "анимация animation", ["start", "end", "width", "fps"]),
@@ -241,6 +254,23 @@ export const ACTIONS: Record<Kind, Action[]> = {
     ...convert(e, e === "md" ? "markdown" : e === "epub" || e === "fb2" ? "книга book" : ""),
     engine: "pandoc",
   })).concat(PACK),
+  office: [
+    office("pdf", [...TEXTS, ...TABLES, ...SLIDES], "документ word excel powerpoint печать print"),
+    office("docx", TEXTS, "word ворд"),
+    office("odt", TEXTS, "opendocument libreoffice"),
+    office("xlsx", TABLES, "excel эксель таблица table"),
+    office("ods", TABLES, "opendocument libreoffice таблица table"),
+    office("csv", TABLES, "таблица table текст text"),
+    office("pptx", SLIDES, "powerpoint презентация slides"),
+    office("odp", SLIDES, "opendocument libreoffice презентация slides"),
+    // Word and OpenDocument texts to Markdown and e-books keep their structure in Pandoc.
+    ...["md", "html", "epub", "fb2", "txt"].map((e): Action => ({
+      ...convert(e, e === "md" ? "markdown" : e === "epub" || e === "fb2" ? "книга book" : ""),
+      engine: "pandoc",
+      only: ["docx", "odt"],
+    })),
+    ...PACK,
+  ],
   archive: [{ id: "extract", keywords: "распаковать unzip unrar extract", engine: "sevenzip" }, ...PACK],
   unknown: [],
 };
@@ -309,6 +339,7 @@ export function actionsFor(
         (!a.clipboard || fromClipboard) &&
         engines.find((e) => e.name === a.engine)?.available !== false &&
         (!a.multi || files.length > 1) &&
+        (!a.only || files.every((f) => a.only!.includes(f.ext))) &&
         !(NOT_FOR_SVG.has(a.id) && files.some((f) => f.ext === "svg")) &&
         (!a.target || files.some((f) => ext(f) !== a.target)),
     ),
@@ -347,6 +378,7 @@ export function suggest(files: FileInfo[], fromClipboard = false): string | unde
   if (all((f) => f.ext === "heic" || f.ext === "heif")) return "to_jpg";
   if (all((f) => f.ext === "ogg" || f.ext === "oga" || f.ext === "opus")) return "to_mp3";
   if (all((f) => f.kind === "video" && f.size > 500 * MB)) return "compress";
+  if (all((f) => f.kind === "office")) return "to_pdf";
 }
 
 /** Submenu starting values: what the Rust side would use without a choice. */

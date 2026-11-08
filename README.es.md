@@ -43,6 +43,8 @@ se toca.
   subtítulos o texto (voz: Windows y Linux).
 - **Archivos comprimidos.** Descomprimir ZIP, RAR, 7Z y otros, o empaquetar en
   ZIP o 7Z.
+- **Documentos de Office.** Word, Excel y PowerPoint a PDF, los antiguos DOC,
+  XLS y PPT a los formatos actuales, una hoja de cálculo a CSV.
 - **Muchos archivos a la vez.** Incluso una carpeta entera: se procesan por
   turnos, unos pocos a la vez.
 - **Directo al chat.** Al terminar, pulsa «Copiar» y luego Ctrl + V en
@@ -51,8 +53,6 @@ se toca.
   guárdala como archivo o conviértela.
 - **Tus propios atajos.** Asigna una tecla a cualquier acción o encadena varias
   en una sola («quitar el sonido y reducir a 8 MB»).
-
-No admite archivos de Word, Excel ni PowerPoint.
 
 ## Instalación
 
@@ -84,7 +84,7 @@ certificado de firma, así que el sistema no conoce al editor.
 
 - **Tus archivos se quedan en tu equipo.** No se sube nada, no hay cuentas ni
   rastreo.
-- **Los extras, solo cuando tú lo pides.** Las acciones de PDF, libros
+- **Los extras, solo cuando tú lo pides.** Las acciones de PDF, Office, libros
   electrónicos, archivos comprimidos e IA necesitan componentes gratuitos
   adicionales; Mutabor muestra su tamaño y los descarga solo si aceptas.
 - **Una comprobación discreta de actualizaciones.** Una vez al día Mutabor

@@ -434,11 +434,13 @@ if (inTauri) {
     ],
     pdf: [{ path: "/tmp/report.pdf", name: "report.pdf", ext: "pdf", kind: "pdf", size: 5_300_000 }],
     book: [{ path: "/tmp/book.fb2", name: "book.fb2", ext: "fb2", kind: "markup", size: 900_000 }],
+    office: [{ path: "/tmp/Отчёт.docx", name: "Отчёт.docx", ext: "docx", kind: "office", size: 240_000 }],
     none: [],
   };
   const demoEngines: EngineInfo[] = [
     { name: "mupdf", title: "MuPDF", version: "1.28.5", license: "AGPL-3.0", purpose: "", size: 94_292_330, available: true, installed: false },
     { name: "pandoc", title: "Pandoc", version: "3.13", license: "GPL-2.0-or-later", purpose: "", size: 42_983_200, available: true, installed: true },
+    { name: "libreoffice", title: "LibreOffice", version: "26.2.7", license: "MPL-2.0", purpose: "", size: 373_121_024, available: true, installed: false },
   ];
   const params = new URLSearchParams(location.search);
   const demoSettings: Settings = {

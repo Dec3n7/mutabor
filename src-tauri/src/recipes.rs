@@ -144,6 +144,8 @@ pub enum Tool {
     Matting,
     /// Text recognition, run inside the app (see `ocr.rs`).
     Ocr,
+    /// LibreOffice, headless. `args` holds only its `--convert-to` value.
+    Office,
 }
 
 impl Tool {
@@ -159,6 +161,7 @@ impl Tool {
             // A model-only engine: the "program" is the model file.
             Tool::Matting => Some(("bgremove", crate::matting::MODEL_FILE)),
             Tool::Ocr => Some(("ocr", crate::ocr::MARKER_FILE)),
+            Tool::Office => Some(("libreoffice", "soffice")),
         }
     }
 }
@@ -410,6 +413,7 @@ pub fn plan(action: &str, input_ext: &str, probe: Probe, opts: &Options) -> Resu
         crate::files::Kind::Image => return image_plan(action, input_ext, q, opts),
         crate::files::Kind::Pdf => return pdf_plan(action, q, opts),
         crate::files::Kind::Markup => return markup_plan(action, input_ext),
+        crate::files::Kind::Office => return office_plan(action, input_ext),
         _ => {}
     }
     if action == "trim" {
@@ -739,6 +743,7 @@ fn pandoc_from(ext: &str) -> Option<&'static str> {
         "epub" => "epub",
         "fb2" => "fb2",
         "docx" => "docx",
+        "odt" => "odt",
         _ => return None,
     })
 }
@@ -758,6 +763,50 @@ fn markup_plan(action: &str, input_ext: &str) -> Result<Plan, PlanError> {
     list.extend(writer);
     list.extend(["-o", "{out}"]);
     tool_plan(Tool::Pandoc, ext, "", &list)
+}
+
+/// Which LibreOffice program reads an office file: texts, tables or slides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OfficeKind {
+    Text,
+    Table,
+    Slides,
+}
+
+fn office_kind(ext: &str) -> Option<OfficeKind> {
+    Some(match ext {
+        "doc" | "docx" | "odt" | "rtf" => OfficeKind::Text,
+        "xls" | "xlsx" | "ods" | "csv" => OfficeKind::Table,
+        "ppt" | "pptx" | "odp" => OfficeKind::Slides,
+        _ => return None,
+    })
+}
+
+/// LibreOffice converts; Word and OpenDocument texts also go to Pandoc for
+/// Markdown, HTML and e-books, which keeps their structure better.
+fn office_plan(action: &str, input_ext: &str) -> Result<Plan, PlanError> {
+    use OfficeKind::*;
+    let kind = office_kind(input_ext).ok_or(PlanError::NotReady)?;
+    if matches!(action, "to_md" | "to_html" | "to_epub" | "to_fb2" | "to_txt") {
+        return markup_plan(action, input_ext);
+    }
+    // The value of `--convert-to`: extension, then the export filter.
+    let (ext, filter, from): (&str, &str, &[OfficeKind]) = match action {
+        "to_pdf" => ("pdf", "pdf", &[Text, Table, Slides]),
+        "to_docx" => ("docx", "docx:MS Word 2007 XML", &[Text]),
+        "to_odt" => ("odt", "odt", &[Text]),
+        "to_xlsx" => ("xlsx", "xlsx:Calc MS Excel 2007 XML", &[Table]),
+        "to_ods" => ("ods", "ods", &[Table]),
+        // The first sheet, comma-separated, UTF-8 (76), quoted text.
+        "to_csv" => ("csv", "csv:Text - txt - csv (StarCalc):44,34,76,1", &[Table]),
+        "to_pptx" => ("pptx", "pptx:Impress MS PowerPoint 2007 XML", &[Slides]),
+        "to_odp" => ("odp", "odp", &[Slides]),
+        _ => return Err(PlanError::NotReady),
+    };
+    if !from.contains(&kind) || ext == input_ext {
+        return Err(PlanError::NotReady);
+    }
+    Ok(Plan { tool: Tool::Office, ext: ext.into(), args: vec![filter.into()], ..Default::default() })
 }
 
 /// Unpacks into a folder named after the archive, next to it.
@@ -1040,6 +1089,23 @@ mod tests {
         assert!(up.png_input, "HEIC goes through PNG first");
         assert!(up.args.contains(&"realesrgan-x4plus-anime".to_string()));
         assert!(!plan("upscale", "jpg", none, &o).unwrap().png_input);
+    }
+
+    #[test]
+    fn office_recipes() {
+        let none = Probe::default();
+        let o = Options::default();
+        let p = plan("to_pdf", "pptx", none, &o).unwrap();
+        assert_eq!((p.tool, p.ext.as_str(), p.args.as_slice()), (Tool::Office, "pdf", &["pdf".to_string()][..]));
+        assert_eq!(plan("to_docx", "doc", none, &o).unwrap().args, ["docx:MS Word 2007 XML"]);
+        assert!(plan("to_csv", "xlsx", none, &o).unwrap().args[0].ends_with(",76,1"), "UTF-8 CSV");
+        // Texts go to Pandoc for Markdown and e-books.
+        assert_eq!(plan("to_md", "docx", none, &o).unwrap().tool, Tool::Pandoc);
+        assert_eq!(plan("to_epub", "odt", none, &o).unwrap().tool, Tool::Pandoc);
+        // A table is not a text, a file is not converted into itself.
+        assert_eq!(plan("to_docx", "xlsx", none, &o), Err(PlanError::NotReady));
+        assert_eq!(plan("to_md", "pptx", none, &o), Err(PlanError::NotReady));
+        assert_eq!(plan("to_pptx", "pptx", none, &o), Err(PlanError::NotReady));
     }
 
     #[test]
