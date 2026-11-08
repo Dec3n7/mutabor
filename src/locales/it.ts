@@ -132,6 +132,7 @@ export default {
   nothing_selected: "Seleziona dei file in Esplora file o nel Finder (oppure copia un file o uno screenshot) e premi di nuovo la scorciatoia.",
   nothing_to_repeat: "Niente da ripetere: prima esegui un’azione.",
   not_a_picture: "Questo file non è un'immagine che Mutabor può leggere",
+  office_failed: "LibreOffice non è riuscito a leggere questo documento; potrebbe essere danneggiato o protetto da password",
   no_vulkan: "Serve una scheda grafica con Vulkan: aggiorna il driver o prova su un altro computer",
   out_of_memory: "Memoria insufficiente: chiudi altri programmi o usa un file più piccolo",
   disk_full: "Spazio su disco insufficiente",

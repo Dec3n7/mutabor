@@ -224,6 +224,48 @@ fn size_of(p: &Path) -> u64 {
     }
 }
 
+const OFFICE_FAILED: &str = "office_failed";
+
+/// LibreOffice names its result after the input, in a folder of its own
+/// choosing: it writes into a hidden folder next to the result, and the file
+/// is then moved into place. `run` starts the command and waits for it.
+fn office_convert(
+    program: &Path,
+    profile: &Path,
+    filter: &str,
+    input: &Path,
+    written: &Path,
+    id: u64,
+    run: impl FnOnce(Command) -> Result<(), String>,
+) -> Result<(), String> {
+    let outdir = written.with_file_name(format!(".mutabor-office-{id}"));
+    let _ = std::fs::remove_dir_all(&outdir);
+    std::fs::create_dir_all(&outdir).map_err(|e| e.to_string())?;
+    let result = (|| {
+        let mut cmd = command(program);
+        cmd.args(["--headless", "--invisible", "--norestore", "--nolockcheck", "--nodefault", "--nologo"])
+            .arg(format!("-env:UserInstallation={}", file_url(profile)))
+            .arg("--convert-to")
+            .arg(filter)
+            .arg("--outdir")
+            .arg(&outdir)
+            .arg(input);
+        // LibreOffice explains a failure on stdout, if at all, so the error
+        // the job sees is often empty.
+        run(cmd).map_err(|e| if e.trim().is_empty() { OFFICE_FAILED.to_string() } else { e })?;
+        // It also exits with 0 when it could not read the file.
+        let made = std::fs::read_dir(&outdir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.is_file())
+            .ok_or(OFFICE_FAILED)?;
+        std::fs::rename(&made, written).map_err(|e| e.to_string())
+    })();
+    let _ = std::fs::remove_dir_all(&outdir);
+    result
+}
+
 /// `file:///C:/Users/...` for LibreOffice's -env: options; everything but
 /// plain letters, digits and path signs is percent-encoded (UTF-8).
 pub(crate) fn file_url(p: &Path) -> String {
@@ -377,6 +419,8 @@ fn friendly(message: &str) -> Option<&'static str> {
     let any = |words: &[&str]| words.iter().any(|w| m.contains(w));
     if m == "not_a_picture" {
         Some("not_a_picture")
+    } else if m == OFFICE_FAILED || m.contains("source file could not be loaded") {
+        Some("office_failed")
     } else if m.starts_with("download:") {
         Some("network_failed")
     } else if m.contains("sha-256 mismatch") {
@@ -882,10 +926,8 @@ impl Jobs {
         Ok(())
     }
 
-    /// LibreOffice names its result after the input, in a folder of its own
-    /// choosing: it writes into a hidden folder next to the result, and the
-    /// file is then moved into place. It keeps its settings inside the engine
-    /// folder, apart from a LibreOffice the user may have installed.
+    /// LibreOffice keeps its settings inside the engine folder, apart from a
+    /// LibreOffice the user may have installed.
     #[allow(clippy::too_many_arguments)]
     fn convert_office(
         &self,
@@ -898,30 +940,9 @@ impl Jobs {
         span: Span,
     ) -> Result<(), String> {
         let profile = crate::engines::dir(app, "libreoffice").ok_or("engine_missing:libreoffice")?.join("mutabor-profile");
-        let outdir = written.with_file_name(format!(".mutabor-office-{id}"));
-        let _ = std::fs::remove_dir_all(&outdir);
-        std::fs::create_dir_all(&outdir).map_err(|e| e.to_string())?;
-        let result = (|| {
-            let mut cmd = command(program);
-            cmd.args(["--headless", "--invisible", "--norestore", "--nolockcheck", "--nodefault", "--nologo"])
-                .arg(format!("-env:UserInstallation={}", file_url(&profile)))
-                .arg("--convert-to")
-                .arg(filter)
-                .arg("--outdir")
-                .arg(&outdir)
-                .arg(input);
-            self.run_step(app, id, Step { cmd, ffmpeg: false, percent: false }, None, span)?;
-            // LibreOffice exits with 0 even when it could not read the file.
-            let made = std::fs::read_dir(&outdir)
-                .map_err(|e| e.to_string())?
-                .flatten()
-                .map(|e| e.path())
-                .find(|p| p.is_file())
-                .ok_or("LibreOffice could not convert this file")?;
-            std::fs::rename(&made, written).map_err(|e| e.to_string())
-        })();
-        let _ = std::fs::remove_dir_all(&outdir);
-        result
+        office_convert(program, &profile, filter, input, written, id, |cmd| {
+            self.run_step(app, id, Step { cmd, ffmpeg: false, percent: false }, None, span)
+        })
     }
 
     /// ffmpeg shrinks the picture for the model, the model (in-process) finds
@@ -1207,6 +1228,45 @@ mod tests {
         assert_eq!(friendly("SHA-256 mismatch: expected a, got b"), Some("bad_download"));
         assert_eq!(friendly("not_a_picture"), Some("not_a_picture"));
         assert_eq!(friendly("Invalid data found when processing input"), None);
+    }
+
+    /// The app's own conversion step on a LibreOffice unpacked by the engine
+    /// test (`MUTABOR_SOFFICE` = its soffice): names with spaces and Cyrillic,
+    /// the result moved into place under the app's name, the hidden folder
+    /// gone, and a broken file reported instead of passing silently.
+    #[test]
+    #[ignore]
+    fn tools_run_libreoffice_like_the_app() {
+        let soffice = PathBuf::from(std::env::var("MUTABOR_SOFFICE").expect("MUTABOR_SOFFICE"));
+        let root = std::env::temp_dir().join("mutabor-office-job");
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("Мои документы");
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("Письмо маме.rtf");
+        std::fs::write(&input, r"{\rtf1\ansi\f0 ၕ?ႈ?ႀ?ၴ?ၷ?႐?\par}").unwrap();
+        let profile = root.join("profile");
+        let run = |mut cmd: Command| -> Result<(), String> {
+            // Like `run_step`: a failure carries what the program said on stderr.
+            let out = cmd.output().map_err(|e| e.to_string())?;
+            if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).into_owned()) }
+        };
+
+        let written = dir.join("Письмо маме (1).pdf");
+        office_convert(&soffice, &profile, "pdf", &input, &written, 7, run).unwrap();
+        assert!(std::fs::read(&written).unwrap().starts_with(b"%PDF"));
+        let names: Vec<String> =
+            std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names.len(), 2, "only the input and the result: {names:?}");
+
+        let broken = dir.join("broken.docx");
+        // A damaged DOCX: the start of a ZIP and nothing after it. (Plain junk
+        // would be read as text and still become a PDF.)
+        std::fs::write(&broken, b"PK\x03\x04\x14\x00\x00\x00\x08\x00broken").unwrap();
+        let err = office_convert(&soffice, &profile, "pdf", &broken, &dir.join("broken.pdf"), 8, run).unwrap_err();
+        assert_eq!(friendly(&err), Some("office_failed"));
+        assert!(!dir.join("broken.pdf").exists());
+        assert!(!dir.join(".mutabor-office-8").exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

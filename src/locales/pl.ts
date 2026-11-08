@@ -132,6 +132,7 @@ export default {
   nothing_selected: "Zaznacz pliki w Eksploratorze lub Finderze (albo skopiuj plik lub zrzut ekranu) i naciśnij skrót jeszcze raz.",
   nothing_to_repeat: "Nie ma jeszcze czego powtórzyć: najpierw wykonaj akcję.",
   not_a_picture: "Ten plik nie jest obrazem, który Mutabor potrafi odczytać",
+  office_failed: "LibreOffice nie mógł odczytać tego dokumentu; może być uszkodzony lub chroniony hasłem",
   no_vulkan: "Potrzebna jest karta graficzna z Vulkanem: zaktualizuj sterownik lub spróbuj na innym komputerze",
   out_of_memory: "Za mało pamięci: zamknij inne programy lub użyj mniejszego pliku",
   disk_full: "Za mało miejsca na dysku",

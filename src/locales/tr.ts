@@ -132,6 +132,7 @@ export default {
   nothing_selected: "Dosya Gezgini'nde veya Finder'da dosya seçin (ya da bir dosya veya ekran görüntüsü kopyalayın) ve kısayola yeniden basın.",
   nothing_to_repeat: "Henüz tekrarlanacak bir şey yok: önce bir eylem çalıştırın.",
   not_a_picture: "Bu dosya Mutabor'un okuyabileceği bir görsel değil",
+  office_failed: "LibreOffice bu belgeyi okuyamadı; belge bozuk ya da parolayla korunuyor olabilir",
   no_vulkan: "Vulkan destekli bir ekran kartı gerekli: sürücüyü güncelleyin veya başka bir bilgisayarda deneyin",
   out_of_memory: "Bellek yetersiz: diğer programları kapatın veya daha küçük bir dosya kullanın",
   disk_full: "Diskte yeterli alan yok",

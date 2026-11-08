@@ -132,6 +132,7 @@ export default {
   nothing_selected: "Selecione arquivos no Explorador ou no Finder (ou copie um arquivo ou uma captura de tela) e pressione o atalho de novo.",
   nothing_to_repeat: "Nada para repetir ainda: execute uma ação primeiro.",
   not_a_picture: "Este arquivo não é uma imagem que o Mutabor consiga ler",
+  office_failed: "O LibreOffice não conseguiu ler este documento; ele pode estar danificado ou protegido por senha",
   no_vulkan: "É preciso uma placa de vídeo com Vulkan: atualize o driver ou tente em outro computador",
   out_of_memory: "Memória insuficiente: feche outros programas ou use um arquivo menor",
   disk_full: "Espaço em disco insuficiente",

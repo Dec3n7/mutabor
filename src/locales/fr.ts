@@ -132,6 +132,7 @@ export default {
   nothing_selected: "Sélectionnez des fichiers dans l'Explorateur ou le Finder (ou copiez un fichier ou une capture d'écran) puis appuyez de nouveau sur le raccourci.",
   nothing_to_repeat: "Rien à répéter pour l’instant : lancez d’abord une action.",
   not_a_picture: "Ce fichier n'est pas une image lisible par Mutabor",
+  office_failed: "LibreOffice n'a pas pu lire ce document ; il est peut-être endommagé ou protégé par un mot de passe",
   no_vulkan: "Une carte graphique compatible Vulkan est nécessaire : mettez à jour le pilote ou essayez sur un autre ordinateur",
   out_of_memory: "Mémoire insuffisante : fermez d'autres programmes ou prenez un fichier plus petit",
   disk_full: "Espace disque insuffisant",

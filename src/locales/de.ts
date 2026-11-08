@@ -132,6 +132,7 @@ export default {
   nothing_selected: "Wähle Dateien im Explorer oder Finder aus (oder kopiere eine Datei oder einen Screenshot) und drücke das Tastenkürzel erneut.",
   nothing_to_repeat: "Noch nichts zu wiederholen: führe zuerst eine Aktion aus.",
   not_a_picture: "Diese Datei ist kein Bild, das Mutabor lesen kann",
+  office_failed: "LibreOffice konnte dieses Dokument nicht lesen; es ist vielleicht beschädigt oder mit einem Passwort geschützt",
   no_vulkan: "Dafür braucht es eine Grafikkarte mit Vulkan: aktualisiere den Treiber oder nutze einen anderen Computer",
   out_of_memory: "Nicht genug Arbeitsspeicher: schließe andere Programme oder nimm eine kleinere Datei",
   disk_full: "Nicht genug Speicherplatz",

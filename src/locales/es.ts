@@ -132,6 +132,7 @@ export default {
   nothing_selected: "Selecciona archivos en el Explorador o en Finder (o copia un archivo o una captura) y vuelve a pulsar el atajo.",
   nothing_to_repeat: "Todavía no hay nada que repetir: primero ejecuta una acción.",
   not_a_picture: "Este archivo no es una imagen que Mutabor pueda leer",
+  office_failed: "LibreOffice no pudo leer este documento; puede estar dañado o protegido con contraseña",
   no_vulkan: "Hace falta una tarjeta gráfica con Vulkan: actualiza el controlador o prueba en otro equipo",
   out_of_memory: "No hay memoria suficiente: cierra otros programas o usa un archivo más pequeño",
   disk_full: "No hay espacio suficiente en el disco",

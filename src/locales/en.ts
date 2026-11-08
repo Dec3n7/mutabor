@@ -133,6 +133,7 @@ export default {
   nothing_selected: "Select files in Explorer or Finder (or copy a file or a screenshot) and press the hotkey again.",
   nothing_to_repeat: "Nothing to repeat yet: run an action first.",
   not_a_picture: "This file isn't a picture Mutabor can read",
+  office_failed: "LibreOffice couldn't read this document; it may be damaged or protected by a password",
   no_vulkan: "This needs a graphics card with Vulkan; update its driver or try another computer",
   out_of_memory: "Not enough memory: close other programs or use a smaller file",
   disk_full: "Not enough disk space",

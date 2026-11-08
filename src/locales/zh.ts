@@ -132,6 +132,7 @@ export default {
   nothing_selected: "请在资源管理器或访达中选择文件（或复制文件、截图），然后再次按下快捷键。",
   nothing_to_repeat: "还没有可重复的操作，请先执行一项操作。",
   not_a_picture: "此文件不是 Mutabor 能读取的图片",
+  office_failed: "LibreOffice 无法读取此文档，它可能已损坏或受密码保护",
   no_vulkan: "需要支持 Vulkan 的显卡：请更新驱动或换一台电脑",
   out_of_memory: "内存不足：请关闭其他程序或使用较小的文件",
   disk_full: "磁盘空间不足",

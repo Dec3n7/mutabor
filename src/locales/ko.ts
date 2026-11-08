@@ -132,6 +132,7 @@ export default {
   nothing_selected: "탐색기나 Finder에서 파일을 선택하고(또는 파일이나 스크린샷을 복사하고) 단축키를 다시 누르세요.",
   nothing_to_repeat: "아직 반복할 작업이 없습니다. 먼저 작업을 실행하세요.",
   not_a_picture: "이 파일은 Mutabor가 읽을 수 있는 이미지가 아닙니다",
+  office_failed: "LibreOffice가 이 문서를 읽지 못했습니다. 손상되었거나 암호로 보호되어 있을 수 있습니다",
   no_vulkan: "Vulkan을 지원하는 그래픽 카드가 필요합니다. 드라이버를 업데이트하거나 다른 컴퓨터에서 시도하세요",
   out_of_memory: "메모리가 부족합니다. 다른 프로그램을 닫거나 더 작은 파일을 사용하세요",
   disk_full: "디스크 공간이 부족합니다",

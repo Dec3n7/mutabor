@@ -77,7 +77,7 @@ function errorText(message: string): string {
   if (message.startsWith("engine_missing:")) return t("engine_missing", { engine: message.split(":")[1] });
   const known = [
     "not_ready", "no_duration", "no_audio", "bad_range", "nothing_selected", "nothing_to_repeat", "folder_not_last", "hotkey_taken",
-    "not_a_picture", "no_vulkan", "out_of_memory", "disk_full", "no_access", "network_failed", "bad_download",
+    "not_a_picture", "office_failed", "no_vulkan", "out_of_memory", "disk_full", "no_access", "network_failed", "bad_download",
   ];
   return known.includes(message) ? t(message) : t("failed");
 }
